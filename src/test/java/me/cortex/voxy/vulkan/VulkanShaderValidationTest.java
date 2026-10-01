@@ -84,7 +84,11 @@ public class VulkanShaderValidationTest {
                         byte[] bytes = new byte[stage.getValue().remaining()];
                         stage.getValue().duplicate().get(bytes);
                         Files.write(spvPath, bytes);
-                        SpirvReflection.reflect(stage.getValue());
+                        var refl = SpirvReflection.reflect(stage.getValue());
+                        var sb = new StringBuilder();
+                        for (var b : refl.bindings()) sb.append(b.binding()).append(' ').append(b.descriptorType()).append(' ').append(b.name()).append('\n');
+                        sb.append("push ").append(refl.pushConstantSize()).append('\n');
+                        Files.writeString(OUT.resolve(base + ".bindings.txt"), sb.toString());
 
                         if (spirvVal) {
                             String err = run(List.of("spirv-val", "--target-env", "vulkan1.2", spvPath.toString()));

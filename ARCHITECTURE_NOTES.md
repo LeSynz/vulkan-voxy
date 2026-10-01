@@ -218,7 +218,7 @@ Paths relative to `src/main/java/me/cortex/voxy/client/`.
 | `core/model/ModelStore.java` | model/colour `GlBuffer`s, atlas `GlTexture` (RGBA8, mipped), sampler (`NEAREST_MIPMAP_LINEAR`, max LOD), bind helpers | `VkGpuBuffer`s, `VkImage2D` (RGBA8, mips), sampler cache. |
 | `core/model/ModelFactory.java` | `nglTextureSubImage2D` per mip, `glPixelStorei` | staging via `VkUploadStream` + `vkCmdCopyBufferToImage` per mip. |
 | `core/model/bakery/SoftwareModelTextureBakery.java` | `glGetTextureImage` of the vanilla block atlas (`GlTexture.glId()`), `glFinish` | Backend-agnostic `CommandEncoder.copyTextureToBuffer` into a `GpuBuffer` (MAP_READ) + fence wait (one-off at bake setup). |
-| `core/model/bakery/BakedBlockEntityModel.java` | `GlTexture.glId()` for block-entity textures | Same agnostic path (texture identity only used as a key / readback source). |
+| `core/model/bakery/BakedBlockEntityModel.java` | `GlTexture.glId()` for block-entity textures | File is entirely commented out in Voxy (not compiled) — nothing to port. |
 
 ### 4.5 Mixins / integrations
 
