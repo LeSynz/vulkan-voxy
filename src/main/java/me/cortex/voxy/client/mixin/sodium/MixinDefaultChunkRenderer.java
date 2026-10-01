@@ -7,6 +7,8 @@ import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.mojang.renderpearl.backend.opengl.GlTextureView;
 import me.cortex.voxy.client.VoxyClient;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
+import me.cortex.voxy.client.core.GlVoxyRenderSystem;
+import me.cortex.voxy.client.core.vulkan.VkVoxyRenderSystem;
 import me.cortex.voxy.client.core.rendering.Viewport;
 import me.cortex.voxy.client.core.util.IrisUtil;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
@@ -74,7 +76,12 @@ public abstract class MixinDefaultChunkRenderer extends ShaderChunkRenderer {
                 } else {
                     viewport = renderer.setupViewport(matrices.projection(), matrices.modelView(), fogParameters, target.width, target.height, camera.x, camera.y, camera.z);
                 }
-                renderer.renderOpaque(viewport, ((GlTextureView)target.getDepthTextureView()).glId(), ((GlTextureView)target.getColorTextureView()).glId());
+                if (renderer instanceof GlVoxyRenderSystem glRenderer) {
+                    glRenderer.renderOpaque(viewport, ((GlTextureView)target.getDepthTextureView()).glId(), ((GlTextureView)target.getColorTextureView()).glId());
+                } else if (renderer instanceof VkVoxyRenderSystem vkRenderer) {
+                    //Vulkan: we are inside minecraft's render pass, the frame is rendered after it closes (MixinLevelRendererVulkan)
+                    vkRenderer.captureFrame(viewport, target.getColorTextureView(), target.getDepthTextureView());
+                }
             }
         }
     }

@@ -1,17 +1,30 @@
 #version 450 core
 
 layout(binding = 0) uniform sampler2D depthTex;
+#ifdef VOXY_VULKAN
+//Vulkan: the loose uniforms are too big for guaranteed push constant space, so they live in a uniform buffer
+layout(binding = 5, std140) uniform BlitUniforms {
+    mat4 invProjMat;
+    mat4 projMat;
+    vec4 endParams;
+    vec4 fogColour;
+    vec4 fadeParams;
+};
+#else
 layout(location = 1) uniform mat4 invProjMat;
 layout(location = 2) uniform mat4 projMat;
+#endif
 
 #ifdef EMIT_COLOUR
 layout(binding = 3) uniform sampler2D colourTex;
+#ifndef VOXY_VULKAN
 #ifdef HAS_FOG
 layout(location = 4) uniform vec4 endParams;
 layout(location = 5) uniform vec4 fogColour;
 #endif
 #ifdef HAS_FADE
 layout(location = 6) uniform vec4 fadeParams;
+#endif
 #endif
 #endif
 
@@ -42,7 +55,10 @@ void main() {
     depth = REDUCTION2(FAR+CLOSER_SIGN*(2.0f/((1<<24)-1)), depth);
     depth = NDC2SCREEN_DEPTH(depth);
 
+    #ifndef VOXY_VULKAN
     depth = gl_DepthRange.diff * depth + gl_DepthRange.near;//TODO: dont think this is right at all so should fix this
+    #endif
+    //Vulkan: the depth range is always [0,1] (viewport minDepth 0, maxDepth 1), so the line above is the identity
 
     gl_FragDepth = depth;
 

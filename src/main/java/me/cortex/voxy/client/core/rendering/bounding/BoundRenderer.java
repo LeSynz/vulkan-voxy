@@ -63,7 +63,7 @@ public class BoundRenderer {
             viewport.depthBoundingBuffer.clear(this.properties.inverseClearDepth());
             return;
         }
-        ((AutoBindingShader)this.rasterShader).ssbo(1, store.getBuffer());
+        ((AutoBindingShader)this.rasterShader).ssbo(1, (GlBuffer) store.getBuffer());
         final float renderDistance = Minecraft.getInstance().options.getEffectiveRenderDistance()*16;//In blocks
         this.renderInner(viewport, renderDistance, count);
         store.postRender(viewport);

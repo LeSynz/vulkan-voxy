@@ -34,6 +34,8 @@ public final class VkGraphicsState {
 
     int[] colorFormats = new int[0];
     int depthFormat = VK_FORMAT_UNDEFINED;
+    //Whether the depth format's stencil aspect is bound as the stencil attachment (must match VkRendering.begin)
+    Boolean stencilAttachment = null;
 
     public static VkGraphicsState create() {
         return new VkGraphicsState();
@@ -48,6 +50,16 @@ public final class VkGraphicsState {
     public VkGraphicsState depthFormat(int format) {
         this.depthFormat = format;
         return this;
+    }
+
+    //For depth/stencil images whose stencil aspect is not attached (e.g. minecraft's depth views)
+    public VkGraphicsState noStencilAttachment() {
+        this.stencilAttachment = false;
+        return this;
+    }
+
+    boolean hasStencilAttachment() {
+        return this.stencilAttachment != null ? this.stencilAttachment : me.cortex.voxy.client.core.vulkan.VkFormats.hasStencil(this.depthFormat);
     }
 
     public VkGraphicsState depthTest(int compareOp) {
@@ -120,7 +132,7 @@ public final class VkGraphicsState {
         c.stencilPassOp = this.stencilPassOp; c.stencilCompare = this.stencilCompare; c.stencilReference = this.stencilReference;
         c.stencilCompareMask = this.stencilCompareMask; c.stencilWriteMask = this.stencilWriteMask;
         c.blend = this.blend; c.srcColor = this.srcColor; c.dstColor = this.dstColor; c.srcAlpha = this.srcAlpha; c.dstAlpha = this.dstAlpha;
-        c.colorWriteMask = this.colorWriteMask; c.colorFormats = this.colorFormats.clone(); c.depthFormat = this.depthFormat;
+        c.colorWriteMask = this.colorWriteMask; c.colorFormats = this.colorFormats.clone(); c.depthFormat = this.depthFormat; c.stencilAttachment = this.stencilAttachment;
         return c;
     }
 }

@@ -1,6 +1,10 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
+import me.cortex.voxy.client.core.NormalRenderPipeline;
 import me.cortex.voxy.client.core.RenderProperties;
+import me.cortex.voxy.client.core.vulkan.render.VkBoundRenderer;
+import me.cortex.voxy.client.core.vulkan.render.VkRenderPipeline;
+import me.cortex.voxy.client.core.vulkan.render.VkSSAO;
 import me.cortex.voxy.client.core.rendering.hierachical.VkNodeCleaner;
 import me.cortex.voxy.client.core.vulkan.render.VkHiZBuffer;
 import me.cortex.voxy.client.core.vulkan.render.VkHierarchicalOcclusionTraverser;
@@ -31,6 +35,14 @@ public final class VkShaderRegistry {
             out.put("section_cull" + p, VkSectionRenderer.cullShader(props));
             out.put("traversal" + p, VkHierarchicalOcclusionTraverser.traversalShader(props, false));
             out.put("traversal_stats" + p, VkHierarchicalOcclusionTraverser.traversalShader(props, true));
+            out.put("stencil_depth_setup" + p, VkRenderPipeline.depthStencilSetupShader(props));
+            for (var fog : NormalRenderPipeline.FogMode.values()) {
+                out.put("final_blit_" + fog.name().toLowerCase(java.util.Locale.ROOT) + p, VkRenderPipeline.finalBlitShader(props, fog));
+            }
+            out.put("ssao_basic" + p, VkSSAO.ssaoShader(props, false, 0));
+            out.put("ssao_better" + p, VkSSAO.ssaoShader(props, true, 12));
+            out.put("ssao_best" + p, VkSSAO.ssaoShader(props, true, 24));
+            out.put("chunk_outline" + p, VkBoundRenderer.outlineShader(props));
         }
         out.put("cmdgen", VkSectionRenderer.commandGenShader(false));
         out.put("cmdgen_stats", VkSectionRenderer.commandGenShader(true));

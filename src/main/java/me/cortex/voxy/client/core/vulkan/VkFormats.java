@@ -41,6 +41,10 @@ public final class VkFormats {
         }
     }
 
+    public static boolean supportsLinearFilter(int format) {
+        return (optimalFeatures(format) & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+    }
+
     public static boolean supportsStorage(int format) {
         return (optimalFeatures(format) & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0;
     }

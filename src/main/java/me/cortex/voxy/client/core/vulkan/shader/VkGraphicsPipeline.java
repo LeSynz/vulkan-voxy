@@ -95,7 +95,7 @@ public class VkGraphicsPipeline extends VkPipeline {
                     .colorAttachmentCount(state.colorFormats.length)
                     .pColorAttachmentFormats(stack.ints(state.colorFormats))
                     .depthAttachmentFormat(state.depthFormat)
-                    .stencilAttachmentFormat(VkFormats.hasStencil(state.depthFormat) ? state.depthFormat : VK_FORMAT_UNDEFINED);
+                    .stencilAttachmentFormat(state.hasStencilAttachment() ? state.depthFormat : VK_FORMAT_UNDEFINED);
 
             var ci = VkGraphicsPipelineCreateInfo.calloc(1, stack);
             ci.get(0).sType$Default()

@@ -1,6 +1,7 @@
 package me.cortex.voxy.client.core.rendering.bounding;
 
-import me.cortex.voxy.client.core.gl.GlBuffer;
+import me.cortex.voxy.client.core.backend.GpuBuffers;
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.client.core.rendering.Viewport;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.common.util.MemoryBuffer;
@@ -14,7 +15,7 @@ import org.lwjgl.system.MemoryUtil;
 // it renders an AABB around loaded chunks, thats it
 public class ColumnStreamedBoundStore implements IBoundStore {
     private static final int INIT_MAX_CHUNK_COUNT = 1<<12;
-    private GlBuffer chunkPosBuffer = new GlBuffer(INIT_MAX_CHUNK_COUNT*8);//Stored as ivec2
+    private IGpuBuffer chunkPosBuffer = GpuBuffers.create(INIT_MAX_CHUNK_COUNT*8);//Stored as ivec2
     private int count;
     public ColumnStreamedBoundStore() {
     }
@@ -36,7 +37,7 @@ public class ColumnStreamedBoundStore implements IBoundStore {
                 chunkPoss.free();
                 throw new IllegalStateException("Not sure how this is possible, should have exact capacity. badness: " + this.count);
             }
-            this.chunkPosBuffer = new GlBuffer(chunkPoss);//Setup new buffer with the new data
+            this.chunkPosBuffer = GpuBuffers.create(chunkPoss);//Setup new buffer with the new data
             chunkPoss.free();
         }
     }
@@ -119,7 +120,7 @@ public class ColumnStreamedBoundStore implements IBoundStore {
     }
 
     @Override
-    public GlBuffer getBuffer() {
+    public IGpuBuffer getBuffer() {
         return this.chunkPosBuffer;
     }
 

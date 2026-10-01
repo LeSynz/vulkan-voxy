@@ -1,6 +1,7 @@
 package me.cortex.voxy.client.core.rendering.bounding;
 
-import me.cortex.voxy.client.core.gl.GlBuffer;
+import me.cortex.voxy.client.core.backend.GpuBuffers;
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.client.core.rendering.Viewport;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.common.util.UnsafeUtil;
@@ -11,7 +12,7 @@ import java.util.Arrays;
 // it renders an AABB around loaded chunks, thats it
 public final class StreamedBoundStore implements IBoundStore {
     private static final int INIT_MAX_CHUNK_COUNT = 1<<12;
-    private GlBuffer chunkPosBuffer = new GlBuffer(INIT_MAX_CHUNK_COUNT*8);//Stored as ivec2
+    private IGpuBuffer chunkPosBuffer = GpuBuffers.create(INIT_MAX_CHUNK_COUNT*8);//Stored as ivec2
     private int count;//NOTE: count here is in INTS, not LONGS (i.e. 1 pos is 2 ints)
     private boolean didChange = false;
     private int[] visibleSections = new int[INIT_MAX_CHUNK_COUNT*2];
@@ -24,7 +25,7 @@ public final class StreamedBoundStore implements IBoundStore {
         if (this.count == 0 || !this.didChange) return;
         if (this.count*4L>this.chunkPosBuffer.size()) {
             this.chunkPosBuffer.free();
-            this.chunkPosBuffer = new GlBuffer(((long) Math.ceil(this.count*1.25))*4);
+            this.chunkPosBuffer = GpuBuffers.create(((long) Math.ceil(this.count*1.25))*4);
         }
         long addr = UploadStream.INSTANCE.upload(this.chunkPosBuffer, 0, this.count*4);
         UnsafeUtil.memcpy(this.visibleSections, this.count, addr);
@@ -51,7 +52,7 @@ public final class StreamedBoundStore implements IBoundStore {
     }
 
     @Override
-    public GlBuffer getBuffer() {
+    public IGpuBuffer getBuffer() {
         return this.chunkPosBuffer;
     }
 

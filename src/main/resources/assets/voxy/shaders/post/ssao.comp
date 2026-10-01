@@ -9,13 +9,29 @@ layout(binding = 2) uniform sampler2D depthTex;
 
 #ifdef BETTER_SSAO
 layout(binding = 3) uniform sampler2D sourceDepthTex;
+#ifdef VOXY_VULKAN
+layout(binding = 4, std140) uniform SSAOUniforms {
+    mat4 Proj;
+    mat4 invProj;
+    mat4 MV;
+    mat4 sourceInvProj;
+};
+#else
 layout(location = 4) uniform mat4 Proj;
 layout(location = 5) uniform mat4 invProj;
 layout(location = 6) uniform mat4 MV;
 layout(location = 7) uniform mat4 sourceInvProj;
+#endif
+#else
+#ifdef VOXY_VULKAN
+layout(binding = 4, std140) uniform SSAOUniforms {
+    mat4 MVP;
+    mat4 invMVP;
+};
 #else
 layout(location = 3) uniform mat4 MVP;
 layout(location = 4) uniform mat4 invMVP;
+#endif
 #endif
 
 vec3 rev3d(mat4 matrix, vec3 clip) {
