@@ -229,6 +229,10 @@ public class SoftwareModelTextureBakery {
     }
 
     public void free() {
+        if (this.pendingReadback != null) {
+            this.pendingReadback.discard();
+            this.pendingReadback = null;
+        }
         this.opaqueVC.free();
         this.translucentVC.free();
     }

@@ -128,9 +128,12 @@ The reflected bindings were checked against what the Java side binds for every p
   disabled (one step per frame); flawless-frame captures will not wait for LOD completion.
 
 ## Open questions / known differences to check on a real GPU
-- Classic (non-OIT) transparency: on Vulkan Voxy runs after the vanilla Main pass, i.e. after
-  vanilla translucent terrain, so far LODs are composited after near water. With improved
-  transparency (OIT) the order matches GL. See ARCHITECTURE_NOTES.md §1.4.
+- Classic (non-OIT) transparency: on Vulkan Voxy runs after the vanilla Main pass, so vanilla water drawn
+  in that pass hides LODs behind it (seen as a band of opaque-looking water where vanilla meets Voxy).
+  Worked around by `mixin/minecraft/vulkan/MixinGameRendererVulkan`, which forces improved transparency
+  on while Voxy's Vulkan renderer is active (confirmed by the user with the in-game option; the forced
+  version needs a re-check). A true fix needs Voxy to run inside the Main pass before translucents
+  (splitting the pass); not attempted. See ARCHITECTURE_NOTES.md §1.4.
 - No memory budget query on Vulkan: the geometry buffer is sized from
   `min(maxStorageBufferRange, maxMemoryAllocationSize, deviceLocalHeap - 2.5GB)` and halved on
   allocation failure. `-Dvoxy.geometryBufferSizeOverrideMB` still works.

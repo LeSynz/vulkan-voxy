@@ -46,6 +46,11 @@ public final class VkTextureReadback {
         return this.fence.signaled();
     }
 
+    //Drops an unfinished readback (shutdown), the buffer is destroyed once minecraft is done with the copy into it
+    public void discard() {
+        this.buffer.free();
+    }
+
     //Returns the texels (RGBA8, same layout as glGetTextureImage with GL_RGBA/GL_UNSIGNED_BYTE) and frees the buffer
     public int[] takeResult() {
         if (!this.isDone()) {

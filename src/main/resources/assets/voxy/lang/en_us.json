@@ -1,10 +1,10 @@
 {
-  "voxy.config.title": "Voxy",
+  "voxy.config.title": "Voxy Vulkan",
 
   "voxy.config.general": "General",
   "voxy.config.rendering": "Rendering",
 
-  "voxy.config.general.enabled": "Enable Voxy",
+  "voxy.config.general.enabled": "Enable Voxy Vulkan",
   "voxy.config.general.enabled.tooltip": "Fully enables or disables voxy",
 
   "voxy.config.general.serviceThreads": "Service threads",

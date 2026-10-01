@@ -101,7 +101,8 @@ Plan for Vulkan:
    splices it in with `VulkanCommandEncoder.execute`.
 3. Known visual difference: with *classic* transparency, vanilla translucent terrain is drawn in
    the same Main pass, i.e. before Voxy, so far LODs are composited behind already-drawn water.
-   With improved transparency (OIT, separate pass) the order matches GL. Needs visual check.
+   With improved transparency (OIT, separate pass) the order matches GL, so `MixinGameRendererVulkan` forces
+   it on while the Vulkan renderer is active (confirmed to fix the water band when enabled by hand).
 
 ---------------------------------------------------------------------------------------------------
 

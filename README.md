@@ -1,1 +1,1 @@
-Voxy is an LoD rendering mod for minecraft
+Voxy Vulkan is a private Vulkan port of Voxy (by MCRcortex), an LoD rendering mod for minecraft
