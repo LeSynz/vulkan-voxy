@@ -5,7 +5,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import me.cortex.voxy.client.core.gl.GlBuffer;
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.client.core.gl.GlTexture;
 import me.cortex.voxy.client.core.model.bakery.SoftwareModelTextureBakery;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
@@ -223,6 +223,9 @@ public class ModelFactory {
     }
 
     private boolean processModelResult() {
+        if (!this.bakery2.isTextureReady()) {
+            return false;//Vulkan: block atlas read back still in flight, woken up by setOnTextureReady
+        }
         var bake = this.bakeQueue.poll();
         if (bake == null) return false;
         ColourDepthTextureData[] textureData = new ColourDepthTextureData[6];
@@ -324,19 +327,18 @@ public class ModelFactory {
     }
 
     public void processUploads() {
+        this.bakery2.tickTextureReadback();
         var upload = this.uploadResults.poll();
         if (upload==null) return;
 
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
-        glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        this.storage.beginTextureUploads();
         do {
             upload.upload(this.storage);
             upload.free();
             upload = this.uploadResults.poll();
         } while (upload != null);
         UploadStream.INSTANCE.commit();
+        this.storage.endTextureUploads();
     }
 
     private interface ResultUploader {
@@ -360,10 +362,8 @@ public class ModelFactory {
         }
 
         public void upload(ModelStore store) {//Uploads and resets for reuse
-            this.upload(store.modelBuffer, store.modelColourBuffer, store.textures);
-        }
-
-        public void upload(GlBuffer modelBuffer, GlBuffer colourBuffer, GlTexture atlas) {//Uploads and resets for reuse
+            var modelBuffer = store.modelBuffer;
+            var colourBuffer = store.modelColourBuffer;
             this.model.cpyTo(UploadStream.INSTANCE.upload(modelBuffer, (long) this.modelId * MODEL_SIZE, MODEL_SIZE));
             if (this.biomeUploadIndex != -1) {
                 this.biomeUpload.cpyTo(UploadStream.INSTANCE.upload(colourBuffer, this.biomeUploadIndex * 4L, this.biomeUpload.size));
@@ -377,7 +377,7 @@ public class ModelFactory {
 
             long cAddr = this.texture.address;
             for (int lvl = 0; lvl < (this.hasMips?LAYERS:1); lvl++) {
-                nglTextureSubImage2D(atlas.id, lvl, X >> lvl, Y >> lvl, (MODEL_TEXTURE_SIZE*3) >> lvl, (MODEL_TEXTURE_SIZE*2) >> lvl, GL_RGBA, GL_UNSIGNED_BYTE, cAddr);
+                store.uploadTexture(lvl, X >> lvl, Y >> lvl, (MODEL_TEXTURE_SIZE*3) >> lvl, (MODEL_TEXTURE_SIZE*2) >> lvl, cAddr);
                 cAddr += (MODEL_TEXTURE_SIZE*MODEL_TEXTURE_SIZE*3*2*4)>>(lvl<<1);
             }
 
@@ -722,7 +722,7 @@ public class ModelFactory {
             this.upload(store.modelBuffer, store.modelColourBuffer);
         }
 
-        public void upload(GlBuffer modelBuffer, GlBuffer modelColourBuffer) {
+        public void upload(IGpuBuffer modelBuffer, IGpuBuffer modelColourBuffer) {
             this.biomeColourBuffer.cpyTo(UploadStream.INSTANCE.upload(modelColourBuffer, 0, this.biomeColourBuffer.size));
 
             //TODO: optimize this to like a compute scatter update or something

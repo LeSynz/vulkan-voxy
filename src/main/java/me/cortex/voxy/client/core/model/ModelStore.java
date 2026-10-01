@@ -1,65 +1,36 @@
 package me.cortex.voxy.client.core.model;
 
-import me.cortex.voxy.client.core.RenderResourceReuse;
-import me.cortex.voxy.client.core.gl.GlBuffer;
-import me.cortex.voxy.client.core.gl.GlTexture;
-import me.cortex.voxy.common.util.GlobalCleaner;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.resources.Identifier;
+import me.cortex.voxy.client.core.backend.GpuBackend;
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
 
-import java.lang.ref.Cleaner;
-
-import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
-import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
-import static org.lwjgl.opengl.GL11C.GL_NEAREST;
-import static org.lwjgl.opengl.GL11C.GL_NEAREST_MIPMAP_LINEAR;
-import static org.lwjgl.opengl.GL12C.GL_TEXTURE_MAX_LOD;
-import static org.lwjgl.opengl.GL12C.GL_TEXTURE_MIN_LOD;
-import static org.lwjgl.opengl.GL30.glBindBufferBase;
-import static org.lwjgl.opengl.GL33.*;
-import static org.lwjgl.opengl.GL33C.glSamplerParameteri;
-import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER;
-import static org.lwjgl.opengl.GL45.glBindTextureUnit;
-
-public class ModelStore {
+//Model data/colour buffers and the model texture atlas, GlModelStore and VkModelStore implement the gpu side
+public abstract class ModelStore {
     public static final int MODEL_SIZE = 64;
-    private Cleaner.Cleanable ref;
-    final GlBuffer modelBuffer;
-    final GlBuffer modelColourBuffer;
-    final GlTexture textures;
-    public final int blockSampler = glGenSamplers();
 
-    public ModelStore() {
-        this.modelBuffer = new GlBuffer(MODEL_SIZE * (1<<16)).name("ModelData");
-        this.modelColourBuffer = new GlBuffer(4 * (1<<16)).name("ModelColour");
-        var tex = this.textures = RenderResourceReuse.getOrCreateModelStoreTextureAtlas();
-        this.ref = GlobalCleaner.CLEANER.register(this, ()->RenderResourceReuse.giveBackModelStoreTextureAtlas(tex));
+    final IGpuBuffer modelBuffer;
+    final IGpuBuffer modelColourBuffer;
 
-        //Limit the mips of the texture to match that of the terrain atlas
-        int mipLvl = ((TextureAtlas) Minecraft.getInstance().getTextureManager()
-                .getTexture(Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/blocks.png")))
-                .maxMipLevel;
-
-        glSamplerParameteri(this.blockSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-        glSamplerParameteri(this.blockSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glSamplerParameteri(this.blockSampler, GL_TEXTURE_MIN_LOD, 0);
-        glSamplerParameteri(this.blockSampler, GL_TEXTURE_MAX_LOD, mipLvl);//Integer.numberOfTrailingZeros(ModelFactory.MODEL_TEXTURE_SIZE)
+    protected ModelStore(IGpuBuffer modelBuffer, IGpuBuffer modelColourBuffer) {
+        this.modelBuffer = modelBuffer;
+        this.modelColourBuffer = modelColourBuffer;
     }
 
-
-    public void free() {
-        this.modelBuffer.free();
-        this.modelColourBuffer.free();
-        this.ref.clean();
-        glDeleteSamplers(this.blockSampler);
+    public static ModelStore create() {
+        return GpuBackend.isVulkan() ? new VkModelStore() : new GlModelStore();
     }
 
-
-    public void bind(int modelBindingIndex, int colourBindingIndex, int textureBindingIndex) {
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, modelBindingIndex, this.modelBuffer.id);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, colourBindingIndex, this.modelColourBuffer.id);
-        glBindTextureUnit(textureBindingIndex, this.textures.id);
-        glBindSampler(textureBindingIndex, this.blockSampler);
+    public IGpuBuffer getModelBuffer() {
+        return this.modelBuffer;
     }
+
+    public IGpuBuffer getModelColourBuffer() {
+        return this.modelColourBuffer;
+    }
+
+    public abstract void beginTextureUploads();
+    //Uploads tightly packed RGBA8 texels into a region of a level of the model atlas
+    public abstract void uploadTexture(int level, int x, int y, int width, int height, long addr);
+    public abstract void endTextureUploads();
+
+    public abstract void free();
 }
