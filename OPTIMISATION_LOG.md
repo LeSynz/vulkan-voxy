@@ -50,6 +50,36 @@ is requested; unknown ids still throw exactly as before.
 Noise −16%, terrain −10% vs. the previous run. Combined #1+#2 vs. the original baseline:
 terrain 13.76 → 10.97 µs (−20%), noise 24.97 → 20.65 µs (−17%). Identity: same test as #1.
 
+### 3. Storage — `SaveLoadSystem3.serialize` specialised LUT — KEPT
+File: `src/main/java/me/cortex/voxy/common/world/SaveLoadSystem3.java`.
+The block-value → palette-index map was a fastutil `Long2ShortOpenHashMap` (`putIfAbsent(key,
+size())`, cleared per section). Replaced by a small open-addressing table (long keys, short
+values, linear probing, fastutil's `HashCommon.mix` hash) that hands out indices in first-insertion
+order like before and uses a generation stamp instead of clearing. Output bytes are identical.
+
+Benchmark `SaveLoadSystemJMH` (one 32³ section, µs/op):
+
+| data | before (current) | before (reference) | after (current) | reference in same run |
+|---|---|---|---|---|
+| terrain | 91.789 ± 1.862 | 91.402 ± 7.307 | 52.578 ± 1.887 | 90.889 ± 3.288 |
+| sparse (old SaveLoadJMH data) | 300.484 ± 9.219 | 296.138 ± 8.322 | 243.062 ± 6.394 | 300.357 ± 8.758 |
+| dense, 300 distinct | 213.572 ± 7.504 | 216.212 ± 11.255 | 161.780 ± 4.865 | 212.873 ± 9.685 |
+
+terrain −42%, sparse −19%, dense −24%. Identity: `SaveLoadIdentityTest` (serialized bytes and
+deserialized data/metadata vs. the original, levels 0–4, terrain/sparse/dense incl. 20000
+distinct values to exercise table growth, all-zero sections, wrong-key path).
+
+### 4. Storage — second most-recent-value slot in serialize — REVERTED
+Keep the previous distinct value + mapping as well, so alternating runs (air, block, air) skip
+the table. Identity test passed but it was not faster:
+terrain 50.156 ± 3.099 (vs 52.578), sparse 254.081 ± 13.042 (vs 243.062), dense 175.542 ±
+8.375 (vs 161.780) µs/op. Reverted.
+
+### 5. Storage — fuse the non-air count into the deserialize decode loop — REVERTED
+Single pass instead of decode + count. Identity test passed but it was much slower
+(the separate count loop vectorises): 38.725 ± 2.045 vs. reference 26.856 ± 1.576 µs/op
+(terrain; sparse/dense the same). Reverted. Deserialize stays at the original ~27 µs/op.
+
 ## GPU-side candidates (not measured — profile on a real GPU)
 - Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
   every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).
