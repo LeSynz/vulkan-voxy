@@ -4,6 +4,8 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import me.cortex.voxy.client.core.gl.shader.Shader;
+import me.cortex.voxy.client.core.vulkan.shader.VkShaderBuilder;
+import org.lwjgl.vulkan.VK10;
 import me.cortex.voxy.client.core.util.IrisUtil;
 import me.cortex.voxy.client.iris.IGetIrisVoxyPipelineData;
 import net.irisshaders.iris.Iris;
@@ -15,6 +17,24 @@ public record RenderProperties(boolean isZero2One, boolean isReverseZ, boolean u
     public <T extends Shader.Builder<J>, J extends Shader> T apply(T builder) {
         return (T) builder.defineIf("USE_ZERO_ONE_DEPTH", this.isZero2One)
                 .defineIf("USE_REVERSE_Z", this.isReverseZ);
+    }
+
+    public VkShaderBuilder apply(VkShaderBuilder builder) {
+        return builder.defineIf("USE_ZERO_ONE_DEPTH", this.isZero2One)
+                .defineIf("USE_REVERSE_Z", this.isReverseZ);
+    }
+
+    //Vulkan VkCompareOp equivalents of the GL compare functions below
+    public int vkCloserEqualDepthCompare() {
+        return this.isReverseZ? VK10.VK_COMPARE_OP_GREATER_OR_EQUAL: VK10.VK_COMPARE_OP_LESS_OR_EQUAL;
+    }
+
+    public int vkCloserDepthCompare() {
+        return this.isReverseZ? VK10.VK_COMPARE_OP_GREATER: VK10.VK_COMPARE_OP_LESS;
+    }
+
+    public int vkFurtherDepthCompare() {
+        return this.isReverseZ? VK10.VK_COMPARE_OP_LESS: VK10.VK_COMPARE_OP_GREATER;
     }
 
     public int closerEqualDepthCompare() {

@@ -7,6 +7,12 @@ layout(local_size_x = 1) in;
 
 #import <voxy:lod/gl46/bindings.glsl>
 
+//Index (in elements of the bound index buffer) of the first cube index, GL uses the byte indices stored after the
+// quad indices of the shared index buffer, vulkan binds a separate 16 bit cube index buffer
+#ifndef CUBE_FIRST_INDEX
+#define CUBE_FIRST_INDEX ((1<<16)*6*2)
+#endif
+
 void main() {
     cmdGenDispatchX = ((sectionCount+127)/128);
     cmdGenDispatchY = 1;
@@ -18,7 +24,7 @@ void main() {
 
     cullDrawIndirectCommand.count = 6*2*3;
     cullDrawIndirectCommand.instanceCount = sectionCount;
-    cullDrawIndirectCommand.firstIndex = (1<<16)*6*2;
+    cullDrawIndirectCommand.firstIndex = CUBE_FIRST_INDEX;
     cullDrawIndirectCommand.baseVertex = 0;
     cullDrawIndirectCommand.baseInstance = 0;
 }

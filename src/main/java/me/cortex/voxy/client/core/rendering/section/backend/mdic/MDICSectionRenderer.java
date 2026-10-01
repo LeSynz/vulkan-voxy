@@ -267,7 +267,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             this.prepShader.bind();
             glBindBufferBase(GL_UNIFORM_BUFFER, 0, this.uniform.id);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, viewport.drawCountCallBuffer.id);
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, viewport.getRenderList().id);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ((GlBuffer)viewport.getRenderList()).id);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             glDispatchCompute(1,1,1);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);

@@ -1,20 +1,120 @@
 #version 460 core
-#define ELEMS_PER_THREAD 8
-#define VISIBILITY_BUFFER_BINDING 1
-#define WORK_SIZE 64
-#define NODE_DATA_BINDING 3
-#define OUTPUT_BUFFER_BINDING 2
-#define OUTPUT_SIZE 256
+#define USE_ZERO_ONE_DEPTH 
+#define RENDER_QUEUE_BINDING 3
+#define NODE_QUEUE_INDEX_BINDING 5
+#define HIZ_BINDING 0
+#define NODE_QUEUE_SINK_BINDING 8
+#define NODE_QUEUE_META_BINDING 6
+#define MAX_REQUEST_QUEUE_SIZE 50
+#define HAS_STATISTICS 
+#define REQUEST_QUEUE_BINDING 2
+#define STATISTICS_BUFFER_BINDING 10
+#define SCENE_UNIFORM_BINDING 1
+#define USE_REVERSE_Z 
+#define NODE_DATA_BINDING 4
+#define RENDER_TRACKER_BINDING 9
+#define MAX_ITERATIONS 5
+#define NODE_QUEUE_SOURCE_BINDING 7
+#define LOCAL_SIZE_BITS 5
 #define VOXY_VULKAN 
 #define IS_INTEL 
-//Uses intrinsics and other operations to perform very fast sorting
-// we dont need a propper sort, only a fuzzy sort, as in we only need to top 128 entries, but those can be unsorted
 
-//#define OUTPUT_SIZE 128
+//TODO: increase local size
+#define LOCAL_SIZE_MSK ((1<<LOCAL_SIZE_BITS)-1)
+#define LOCAL_SIZE (1<<LOCAL_SIZE_BITS)
+layout(local_size_x=LOCAL_SIZE) in;//, local_size_y=1
 
-layout(local_size_x=WORK_SIZE, local_size_y=1) in;
-#define OPS_PER_THREAD (OUTPUT_SIZE/WORK_SIZE)
+struct Frustum {
+    vec4 planes[6];
+};
 
+bool testPlane(vec4 plane, vec3 base, float size) {
+    return dot(plane.xyz, base+mix(vec3(size), vec3(0), lessThan(plane.xyz, vec3(0)))) >= -plane.w;
+}
+
+//TODO: optimize this, this can be done by computing the base point value, then multiplying and adding a seperate value by the size
+bool outsideFrustum(in Frustum frustum, vec3 pos, float size) {
+    return !(testPlane(frustum.planes[0], pos, size) && testPlane(frustum.planes[1], pos, size) &&
+           testPlane(frustum.planes[2], pos, size) && testPlane(frustum.planes[3], pos, size) &&
+           testPlane(frustum.planes[4], pos, size));//Dont need to test far plane
+}
+
+layout(binding = SCENE_UNIFORM_BINDING, std140) uniform SceneUniform {
+    mat4 MVP;
+    ivec3 camSecPos;
+    uint packedHizSize;
+    vec3 camSubSecPos;
+    float minSSS;
+    Frustum frustum;
+    uint renderQueueMaxSize;
+    uint frameId;
+    uint requestQueueSize;
+    float renderDistance;
+};
+
+#define SENTINAL_OUT_OF_BOUNDS uint(-1)
+
+#ifdef VOXY_VULKAN
+layout(push_constant) uniform QueuePushConstants {
+    uint queueIdx;
+};
+#else
+layout(location = NODE_QUEUE_INDEX_BINDING) uniform uint queueIdx;
+#endif
+
+layout(binding = NODE_QUEUE_META_BINDING, std430) restrict buffer NodeQueueMeta {
+    uvec4 nodeQueueMetadata[MAX_ITERATIONS];
+};
+
+layout(binding = NODE_QUEUE_SOURCE_BINDING, std430) restrict readonly buffer NodeQueueSource {
+    uint[] nodeQueueSource;
+};
+
+layout(binding = NODE_QUEUE_SINK_BINDING, std430) restrict writeonly buffer NodeQueueSink {
+    uint[] nodeQueueSink;
+};
+
+uint getCurrentNode() {
+    if (nodeQueueMetadata[queueIdx].w <= gl_GlobalInvocationID.x) {
+        return SENTINAL_OUT_OF_BOUNDS;
+    }
+    return nodeQueueSource[gl_GlobalInvocationID.x];
+}
+
+
+//TODO: limit the size/writing out of bounds
+uint nodePushIndex = -1;
+void pushNodesInit(uint nodeCount) {
+    //Debug
+    #ifdef DEBUG
+    if (queueIdx >= (MAX_ITERATIONS-1)) {
+        /*printf removed (vulkan)*/;
+        nodePushIndex = -1;
+        return;
+    }
+    #endif
+
+    uint index = atomicAdd(nodeQueueMetadata[queueIdx+1].w, nodeCount);
+    //Increment first metadata value if it changes threash hold
+    uint inc = ((index+LOCAL_SIZE)>>LOCAL_SIZE_BITS)-(index>>LOCAL_SIZE_BITS);
+    atomicAdd(nodeQueueMetadata[queueIdx+1].x, inc);//TODO: see if making this conditional on inc != 0 is faster
+    nodePushIndex = index;
+}
+
+void pushNode(uint nodeId) {
+    #ifdef DEBUG
+    if (nodePushIndex == -1) {
+        /*printf removed (vulkan)*/;
+        return;
+    }
+    #endif
+    nodeQueueSink[nodePushIndex++] = nodeId;
+}
+
+#define SIMPLE_QUEUE(type, name, bindingIndex) layout(binding = bindingIndex, std430) restrict buffer name##Struct { \
+    type name##Index; \
+    type##[] name; \
+};
 #ifndef _POS_UTIL_DECL
 #define _POS_UTIL_DECL
 
@@ -133,175 +233,436 @@ void markRequested(inout UnpackedNode node) {
 }
 
 void debugDumpNode(in UnpackedNode node) {
-    printf("Node %d, %d@[%d,%d,%d], flags: %d, mesh: %d, ChildPtr: %d", node.nodeId, node.lodLevel, node.pos.x, node.pos.y, node.pos.z, node.flags, node.meshPtr, node.childPtr);
+    /*printf removed (vulkan)*/;
 }
 
-layout(binding = VISIBILITY_BUFFER_BINDING, std430) restrict readonly buffer VisibilityDataBuffer {
-    uint[] visibility;
+//All the screenspace computuation code, hiz culling + size/screenspace AABB size computation
+// to determin whether child node should be visited
+// it controls the actions of the traversal logic
+//NOTEEE!!! SO can do a few things, technically since atm its split not useing persistent threads
+// can use mesh shaders to do rasterized occlution directly with a meshdrawindirect, one per layer
+//Persistent threads might still be viable/usable since the inital lods supplied to the culler are mixed level
+// (basiclly the minimum guarenteed value, like dont supply a top level lod right in front of the camera, since that is guarenteed not to, never be that level)
+// do this based on camera distance computation
+
+//changing the base level/root of the graph for some nodes can be really tricky and incorrect so might not be worth it but it should help
+// substantually for performance (for both persistent threads and incremental)
+
+
+//These defines are definatly going to break some shaders somehow
+
+#ifndef UNDEFINE_DEPTH
+#define UNDEFINE_DEPTH
+
+#ifdef USE_REVERSE_Z
+#define REDUCTION min
+#define REDUCTION2 max
+#define NEAR 1.0f
+#define FAR 0.0f
+#define CLOSER_SIGN 1.0f
+#define DEPTH_SCALAR_COMPARE(a,b) ((a)>(b))
+#define DEPTH_SCALAR_COMPARE_EQUAL(a,b) ((a)>=(b))
+#else
+#define REDUCTION max
+#define REDUCTION2 min
+#define NEAR 0.0f
+#define FAR 1.0f
+#define CLOSER_SIGN -1.0f
+#define DEPTH_SCALAR_COMPARE(a,b) ((a)<(b))
+#define DEPTH_SCALAR_COMPARE_EQUAL(a,b) ((a)<=(b))
+#endif
+
+
+
+#ifdef USE_ZERO_ONE_DEPTH
+vec3 NDC2SCREEN(vec3 val) {
+    return vec3(val.xy*0.5f+0.5f, val.z);
+}
+vec3 SCREEN2NDC(vec3 val) {
+    return vec3(val.xy*2.0f-1.0f, val.z);
+}
+float NDC2SCREEN_DEPTH(float val) {
+    return val;
+}
+float SCREEN2NDC_DEPTH(float val) {
+    return val;
+}
+#else
+vec3 NDC2SCREEN(vec3 val) {
+    return val*0.5f+0.5f;
+}
+vec3 SCREEN2NDC(vec3 val) {
+    return val*2.0f-1.0f;
+}
+float NDC2SCREEN_DEPTH(float val) {
+    return val*0.5f+0.5f;
+}
+float SCREEN2NDC_DEPTH(float val) {
+    return val*2.0f-1.0f;
+}
+#endif
+
+
+#else
+#undef UNDEFINE_DEPTH
+
+#undef REDUCTION
+#undef REDUCTION2
+#undef NEAR
+#undef FAR
+#undef CLOSER_SIGN
+#undef DEPTH_SCALAR_COMPARE
+#undef DEPTH_SCALAR_COMPARE_EQUAL
+#undef USE_ZERO_ONE_DEPTH
+
+#endif
+
+layout(binding = HIZ_BINDING) uniform sampler2D hizDepthSampler;
+
+//TODO: maybe do spher bounds aswell? cause they have different accuracies but are both over estimates (liberals (non conservative xD))
+// so can do &&
+
+bool within(vec2 a, vec2 b, vec2 c) {
+    return all(lessThan(a,b)) && all(lessThan(b, c));
+}
+
+bool within(vec3 a, vec3 b, vec3 c) {
+    return all(lessThan(a,b)) && all(lessThan(b, c));
+}
+
+bool within(float a, float b, float c) {
+    return a<b && b<c;
+}
+
+float crossMag(vec2 a, vec2 b) {
+    return abs(a.x*b.y-b.x*a.y);
+}
+
+bool checkPointInView(vec4 point) {
+    return within(vec3(-point.w,-point.w,0.0f), point.xyz, vec3(point.w));
+}
+
+vec3 _minBB = vec3(0.0f);
+vec3 _maxBB = vec3(0.0f);
+bool _frustumCulled = false;
+
+float _screenSize = 0.0f;
+
+#ifdef TAA
+vec2 getTAA();
+#endif
+
+UnpackedNode node22;
+//Sets up screenspace with the given node id, returns true on success false on failure/should not continue
+//Accesses data that is setup in the main traversal and is just shared to here
+void setupScreenspace(in UnpackedNode node) {
+    //TODO: Need to do aabb size for the nodes, it must be an overesimate of all the children
+
+    node22 = node;
+    /*
+    Transform transform = transforms[getTransformIndex(node)];
+
+    vec3 point = VP*(((transform.transform*vec4((node.pos<<node.lodLevel) - transform.originPos.xyz, 1))
+                    + (transform.worldPos.xyz-camChunkPos))-camSubChunk);
+                    */
+
+
+    vec3 basePos = vec3(((node.pos<<node.lodLevel)-camSecPos)<<5)-camSubSecPos;
+
+    _frustumCulled = outsideFrustum(frustum, basePos, float(32<<node.lodLevel));
+
+    //Fast exit
+    if (_frustumCulled) {
+        return;
+    }
+
+    //TODO: CHECK THIS IS AT ALL RIGHT
+    vec4 P000 = MVP * vec4(basePos, 1);
+    mat3x4 Axis = mat3x4(MVP)*float(32<<node.lodLevel);
+    vec4 P100 = Axis[0] + P000;
+    vec4 P001 = Axis[2] + P000;
+    vec4 P101 = Axis[2] + P100;
+    vec4 P010 = Axis[1] + P000;
+    vec4 P110 = Axis[1] + P100;
+    vec4 P011 = Axis[1] + P001;
+    vec4 P111 = Axis[1] + P101;
+
+    //vec4 P000 = MVP * vec4(basePos, 1);
+    //vec4 P100 = MVP * vec4(basePos+vec3(1,0,0)*(32<<node.lodLevel), 1);
+    //vec4 P001 = MVP * vec4(basePos+vec3(0,0,1)*(32<<node.lodLevel), 1);
+    //vec4 P101 = MVP * vec4(basePos+vec3(1,0,1)*(32<<node.lodLevel), 1);
+    //vec4 P010 = MVP * vec4(basePos+vec3(0,1,0)*(32<<node.lodLevel), 1);
+    //vec4 P110 = MVP * vec4(basePos+vec3(1,1,0)*(32<<node.lodLevel), 1);
+    //vec4 P011 = MVP * vec4(basePos+vec3(0,1,1)*(32<<node.lodLevel), 1);
+    //vec4 P111 = MVP * vec4(basePos+vec3(1,1,1)*(32<<node.lodLevel), 1);
+
+
+    //Perspective divide + convert to screenspace (i.e. range 0->1 if within viewport)
+    vec3 p000 = NDC2SCREEN(P000.xyz/P000.w);
+    vec3 p100 = NDC2SCREEN(P100.xyz/P100.w);
+    vec3 p001 = NDC2SCREEN(P001.xyz/P001.w);
+    vec3 p101 = NDC2SCREEN(P101.xyz/P101.w);
+    vec3 p010 = NDC2SCREEN(P010.xyz/P010.w);
+    vec3 p110 = NDC2SCREEN(P110.xyz/P110.w);
+    vec3 p011 = NDC2SCREEN(P011.xyz/P011.w);
+    vec3 p111 = NDC2SCREEN(P111.xyz/P111.w);
+
+
+    {//Compute exact screenspace size
+        float ssize = 0;
+        {//Faces from 0,0,0
+
+            vec2 A = p100.xy-p000.xy;
+            vec2 B = p010.xy-p000.xy;
+            vec2 C = p001.xy-p000.xy;
+            ssize += crossMag(A,B);
+            ssize += crossMag(A,C);
+            ssize += crossMag(C,B);
+        }
+        {//Faces from 1,1,1
+            vec2 A = p011.xy-p111.xy;
+            vec2 B = p101.xy-p111.xy;
+            vec2 C = p110.xy-p111.xy;
+            ssize += crossMag(A,B);
+            ssize += crossMag(A,C);
+            ssize += crossMag(C,B);
+        }
+        ssize *= 0.5f;//Half the size since we did both back and front area
+        _screenSize = ssize;
+    }
+
+    _minBB = min(min(min(p000, p100), min(p001, p101)), min(min(p010, p110), min(p011, p111)));
+    _maxBB = max(max(max(p000, p100), max(p001, p101)), max(max(p010, p110), max(p011, p111)));
+
+
+    #ifdef TAA
+    vec2 taaValue = getTAA()*0.5f;//Note! this might be need tobe *0.5f
+    _minBB.xy += taaValue;
+    _maxBB.xy += taaValue;
+    #endif
+
+    _minBB = clamp(_minBB, vec3(0), vec3(1));
+    _maxBB = clamp(_maxBB, vec3(0), vec3(1));
+}
+
+//Checks if the node is implicitly culled (outside frustum)
+bool outsideFrustum() {
+    return _frustumCulled;// maxW < 16 is a trick where 16 is the near plane
+
+    //|| any(lessThanEqual(minBB, vec3(0.0f, 0.0f, 0.0f))) || any(lessThanEqual(vec3(1.0f, 1.0f, 1.0f), maxBB));
+}
+
+bool isCulledByHiz() {
+    //if (node22.lodLevel!=0) return false;
+
+    //Things start breaking down if the area is the entire scree, no idea why, just abort if we hit this case
+    //if ((maxBB.xy-minBB.xy)==vec2(1.0f)) return false;
+    if (any(lessThan(abs(_maxBB.xy-_minBB.xy-vec2(1.0f)), vec2(0.000001f)))) return false;
+
+    ivec2 ssize = ivec2(packedHizSize>>16,packedHizSize&0xFFFF);
+    vec2 size = (_maxBB.xy-_minBB.xy)*ssize;
+    float miplevel = log2(max(max(size.x, size.y),1));
+
+    miplevel = floor(miplevel)-1;
+    //miplevel = clamp(miplevel, 0, 0);
+    miplevel = clamp(miplevel, 0, textureQueryLevels(hizDepthSampler)-1);
+
+    int ml = int(miplevel);
+    ssize = max(ivec2(1), ssize>>ml);
+    ivec2 mxbb = min(ivec2(ceil(_maxBB.xy*ssize)),ssize-1);
+    ivec2 mnbb = ivec2(floor(_minBB.xy*ssize));
+
+    float pointSample = (NEAR*3.0f)-1.0f;
+    //float pointSample2 = 0.0f;
+    for (int x = mnbb.x; x<=mxbb.x; x++) {
+        for (int y = mnbb.y; y<=mxbb.y; y++) {
+            float sp = texelFetch(hizDepthSampler, ivec2(x, y), ml).r;
+            //pointSample2 = max(sp, pointSample2);
+            //sp = mix(sp, pointSample, 0.9999999f<=sp);
+            pointSample = REDUCTION(sp, pointSample);
+        }
+    }
+    //pointSample = mix(pointSample, pointSample2, pointSample<=0.000001f);
+    float depthTestAgainst;
+    #ifdef USE_REVERSE_Z
+    depthTestAgainst = _maxBB.z;
+    #else
+    depthTestAgainst = _minBB.z;
+    #endif
+    return DEPTH_SCALAR_COMPARE_EQUAL(pointSample,depthTestAgainst);
+}
+
+
+
+//Returns if we should decend into its children or not
+bool shouldDecend() {
+    return _screenSize > minSSS;
+}
+
+
+//SIMPLE_QUEUE(uvec2, requestQueue, REQUEST_QUEUE_BINDING);
+layout(binding = REQUEST_QUEUE_BINDING, std430) restrict buffer requestQueueStruct {
+    uvec2 requestQueueIndex;
+    uvec2[] requestQueue;
 };
 
-layout(binding = OUTPUT_BUFFER_BINDING, std430) restrict volatile buffer MinimumVisibilityBuffer {//TODO: might need to be volatile
-    uint minVisIds[OUTPUT_SIZE];
+//SIMPLE_QUEUE(uint, renderQueue, RENDER_QUEUE_BINDING);
+layout(binding = RENDER_QUEUE_BINDING, std430) restrict buffer renderQueueStruct {
+    uint renderQueueIndex;
+    uint[] renderQueue;
 };
 
-//Returns the id of the max value
-uint atomicDerefMaxExchangeGlobal(uint atId, uint id) {
-    const uint value = visibility[id];
-    while (true) {
-        const uint existingId = minVisIds[atId];//TODO: check that this does what we want, and that it obtains the value of atValue, at this point
-        if (existingId == id) {//If we are trying to insert self, return -1
-            return uint(-1);
-        }
-        //Check if the value is less than the dereferenced value, if its not, return our own id
-        if (visibility[existingId&((1u<<31)-1)] <= value) {//Remove the flag bit
-            return id;
-        }
-        //Attempt to swap, since we know we are less than the existingId
-        const uint c = atomicCompSwap(minVisIds[atId], existingId, id);
-        //Check if we did swap, else if we failed (or got reswapped else where) recheck
+layout(binding = RENDER_TRACKER_BINDING, std430) restrict writeonly buffer renderTrackerArray {
+    uint[] lastRenderFrame;
+};
 
-        //We did swap, (since the original mem contents was the existing id)
-        // which means existingId is now the max of the ptr
-        if (c == existingId) {
-            return existingId;
-        }
-    }
-}
+#ifdef HAS_STATISTICS
+layout(binding = STATISTICS_BUFFER_BINDING, std430) restrict buffer statisticsBuffer {
+    uint traversalCounts[MAX_ITERATIONS];
+    uint renderCounts[MAX_ITERATIONS];
+};
+#endif
 
-//TODO: optimize
-void bubbleSortGlobal(uint start, uint id) {
-    for (uint i = start; i < OUTPUT_SIZE; i++) {
-        id = atomicDerefMaxExchangeGlobal(i, id);
-        if (id == uint(-1)) {
-            break;
-        }
-    }
-}
-
-//TODO: maybe also have a shared "cache" of the visibility data
-// meaning that the shader doesnt need to access global memory as much
-shared uint initalSort[OUTPUT_SIZE];
-
-
-//Returns the id of the max value
-uint atomicDerefMaxExchangeLocal(uint atId, uint id) {
-    const uint value = visibility[id];
-    while (true) {
-        const uint existingId = initalSort[atId];//TODO: check that this does what we want, and that it obtains the value of atValue, at this point
-        if (existingId == id) {//If we are trying to insert self, return -1
-            return uint(-1);
-        }
-        //Check if the value is less than the dereferenced value, if its not, return our own id
-        if (visibility[existingId&((1u<<31)-1)] <= value) {//Remove the flag bit
-            return id;
-        }
-        //Attempt to swap, since we know we are less than the existingId
-        const uint c = atomicCompSwap(initalSort[atId], existingId, id);
-        //Check if we did swap, else if we failed (or got reswapped else where) recheck
-
-        //We did swap, (since the original mem contents was the existing id)
-        // which means existingId is now the max of the ptr
-        if (c == existingId) {
-            return existingId;
-        }
-    }
-}
-void bubbleSortInital(uint vis, uint id) {
-    uint start = 0;
-    //Fast path cut out half the ops
-    if (visibility[initalSort[(OUTPUT_SIZE-1)>>1]] <= vis) {//Check if we are more than half way
-        start = (OUTPUT_SIZE-1)>>1;
-    }
-
-    for (uint i = start; i < OUTPUT_SIZE; i++) {
-        id = atomicDerefMaxExchangeLocal(i, id);
-    }
-}
-
-bool shouldSortId(uint id) {
-    UnpackedNode node;
-    if (unpackNode(node, id)==uvec4(-1)) {
-        return false;//Unallocated node
-    }
-    if (isEmptyMesh(node) || (!hasMesh(node))) {//|| (!hasChildren(node))
-        return false;
-    }
-    //TODO: FIXME: DONT HARDCODE TOP LEVEL LOD LEVEL
-    if (node.lodLevel == 4) {// (!hasChildren(node)) -> Assume leaf node
-        return false;//Cannot remove geometry from top level node
-    }
-
-    if (hasRequested(node)) {//If a node has a request its not valid to remove
-        return false;
-    }
-
-    /*THIS IS COMPLETLY WRONG, we need to check if all the children of the parent of the child are leaf nodes
-    // not this node
-
-    //Very sneeky hack, ensure all children are leaf nodes
-    if (hasChildren(node)&&!childListIsEmpty(node)) {
-        uint ptr = getChildPtr(node);
-        uint cnt = getChildCount(node);
-        for (uint i = 0; i < cnt; i++) {
-            UnpackedNode child;
-            unpackNode(child, i+ptr);
-            if (hasChildren(child)) {
-                return;
+void addRequest(inout UnpackedNode node) {
+    ///*printf removed (vulkan)*/;
+    if (!hasRequested(node)) {
+        if (requestQueueIndex.x < requestQueueSize) {//Soft limit
+            uint atomRes = atomicAdd(requestQueueIndex.x, 1);
+            if (atomRes < MAX_REQUEST_QUEUE_SIZE) {//Hard limit
+                //Mark node as having a request submitted to prevent duplicate submissions
+                requestQueue[atomRes] = getRawPos(node);
+                markRequested(node);
             }
         }
     }
-    */
-
-    return true;
 }
+
+void enqueueChildren(in UnpackedNode node) {
+    if (childListIsEmpty(node)) {//Occures in a very rare case/instance so just handle it gracefully
+        return;
+    }
+
+    uint children = getChildCount(node);
+    pushNodesInit(children);
+    uint ptr = getChildPtr(node);
+    for (int i = 0; i < children; i++) {
+        pushNode(ptr+i);
+    }
+}
+
+void enqueueSelfForRender(in UnpackedNode node) {
+    ///*printf removed (vulkan)*/;
+    if (renderQueueIndex < renderQueueMaxSize) {
+        lastRenderFrame[getId(node)] = frameId;
+        if (!isEmptyMesh(node)) {
+            uint renderIndex = atomicAdd(renderQueueIndex, 1);
+            if (renderIndex < renderQueueMaxSize) {
+                renderQueue[renderIndex] = getMesh(node);
+
+                #ifdef IS_DEBUG
+                debugRenderNodeQueue[atomicAdd(debugRenderNodeQueueIndex, 1)] = node.nodeId;
+                #endif
+
+                #ifdef HAS_STATISTICS
+                atomicAdd(renderCounts[node.lodLevel], 1);
+                #endif
+            }
+        }
+    }
+}
+
+
+vec3 closestPointToCamera(in UnpackedNode node) {
+    vec3 nPos = vec3(((node.pos<<node.lodLevel)-camSecPos)<<5)-camSubSecPos;
+    float scale = 1<<(node.lodLevel+5);
+    return mix(mix(vec3(0), nPos, greaterThan(nPos, vec3(0))), nPos+scale, lessThan(nPos+scale, vec3(0)));
+}
+
+vec3 furthestPointToCamera(in UnpackedNode node) {
+    vec3 nPos = vec3(((node.pos<<node.lodLevel)-camSecPos)<<5)-camSubSecPos;
+    float scale = 1<<(node.lodLevel+5);
+    return mix(nPos+scale, mix(nPos, vec3(0), greaterThan(nPos, vec3(0))), lessThan(nPos+scale, vec3(0)));
+}
+
+bool isWithinRenderDistance(in UnpackedNode node) {
+    if (renderDistance<0.0f) return true;
+    vec3 close = closestPointToCamera(node);
+    float xzDist = close.x*close.x+close.z*close.z;
+    return xzDist <= renderDistance;
+}
+
+
+void traverse(in UnpackedNode node) {
+    #ifdef HAS_STATISTICS
+    atomicAdd(traversalCounts[node.lodLevel], 1);
+    #endif
+
+    //Compute screenspace
+    setupScreenspace(node);
+    //debugDumpNode(node);
+
+    if (outsideFrustum() || isCulledByHiz()) {
+        ///*printf removed (vulkan)*/;
+    } else {
+        //It is visible, TODO: maybe do a more detailed hiz test? (or make it so that )
+
+        //Only decend if not a root node
+        if (node.lodLevel!=0 && shouldDecend()) {
+            if (hasChildren(node)) {
+                ///*printf removed (vulkan)*/;
+                enqueueChildren(node);
+            } else {
+                ///*printf removed (vulkan)*/;
+                addRequest(node);
+                //TODO: use self mesh (is error state if it doesnt have one since all leaf nodes should have a mesh)
+                // Basicly guarenteed to have a mesh, if it doesnt it is very very bad and incorect since its a violation of the graph properties
+                // that all leaf nodes must contain a mesh
+
+                bool shouldRenderSelf = renderDistance<0.0f;
+                if (!shouldRenderSelf) {
+                    vec3 far = furthestPointToCamera(node);
+                    shouldRenderSelf = (far.x*far.x+far.z*far.z+(16*16*16))<=renderDistance;//the +16*16 is to add some buffer room
+                }
+
+                if (shouldRenderSelf) {
+                    enqueueSelfForRender(node);
+                }
+            }
+        } else {
+            if (hasMesh(node)) {
+                ///*printf removed (vulkan)*/;
+                enqueueSelfForRender(node);
+            } else {
+                ///*printf removed (vulkan)*/;
+                //!! not ideal, we want to render this mesh but dont have it. If we havent sent a request
+                // then send a request for a mesh for this node.
+                addRequest(node);
+
+                //TODO: Decend into children? maybe add a bitflag saying is bad if the immediate children dont have meshes
+                if (node.lodLevel != 0) {
+                    enqueueChildren(node);
+                }
+            }
+        }
+    }
+}
+
 void main() {
-    //Cheaky trick, copy the _global buffer_ into the local buffer
-    // this means that insertion into the local buffer can be accelerated W.R.T global
-    for (uint i = 0; i < OPS_PER_THREAD; i++) {
-        //Copy in with warp size batch fetch
-        uint id = (gl_LocalInvocationID.x*OPS_PER_THREAD) + i;
-        initalSort[id] = minVisIds[id]|(1u<<31);//Flag the id as being external
-    }
-    barrier();
-    //Do insertion and sort into local shared buffer
-    for (uint i = 0; i < ELEMS_PER_THREAD; i++) {
-        uint id = gl_GlobalInvocationID.x*ELEMS_PER_THREAD+i;
-        uint vis = visibility[id];
-        if (vis == uint(-1)) {
-            continue;
-        }
-        //Quick exit if this element is already bigger than global output
-        if (visibility[minVisIds[OUTPUT_SIZE-1]] <= vis) {
-            continue;
-        }
-        if (!shouldSortId(id)) {
-            continue;
+    uint nodeId = getCurrentNode();
+    if (nodeId != SENTINAL_OUT_OF_BOUNDS) {
+        //Fetch + decode node
+        UnpackedNode node;
+        unpackNode(node, nodeId);
+
+        //Check if were inside the render distastance before traversince
+        if (isWithinRenderDistance(node)) {
+            traverse(node);
         }
 
-        bubbleSortInital(vis, id);
-    }
-    barrier();
-    //Do insertion into global visibility array
-    // this is done front to back
-
-    //Work size batching
-    for (uint i = 0; i < OPS_PER_THREAD; i++) {
-        barrier();//Probably unneeded, was just to keep warp coheriancy
-        uint id = (gl_LocalInvocationID.x*OPS_PER_THREAD)+i;
-        uint sid = initalSort[id];
-        if ((sid&(1u<<31)) != 0) {
-            //The flag being external was set, meaning we should NOT insert this element
-            continue;
-        }
-        uint vis = visibility[sid];
-        //If output is already smaller than self
-        if (visibility[minVisIds[OUTPUT_SIZE-1]] <= vis) {
-            continue;
-        }
-        uint start = id;
-        if (visibility[minVisIds[(id+OUTPUT_SIZE)>>1]] <= vis) {//Try to skip
-            start = (id+OUTPUT_SIZE)>>1;
-        }
-        bubbleSortGlobal(start, sid);//Insert into global
+        /*
+        /*printf removed (vulkan)*/;
+        pushNodesInit(1);
+        pushNode(node);
+        */
     }
 }

@@ -41,7 +41,7 @@ public final class VkShaderCompiler {
         src = INSTANCE_ID.matcher(src).replaceAll("(gl_InstanceIndex-gl_BaseInstance)");
         src = BASE_INSTANCE_ARB.matcher(src).replaceAll("gl_BaseInstance");
         src = DRAW_ID_ARB.matcher(src).replaceAll("gl_DrawID");
-        src = PRINTF.matcher(src).replaceAll("/*printf removed (vulkan)*/;");
+        src = PRINTF.matcher(src).replaceAll(";");//No comment marker: the call may itself be inside a block comment
         return src;
     }
 
