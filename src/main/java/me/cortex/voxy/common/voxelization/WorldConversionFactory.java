@@ -21,6 +21,7 @@ public class WorldConversionFactory {
         private final WeakHashMap<Mapper, Reference2IntOpenHashMap<BlockState>> localMapping = new WeakHashMap<>();
         private int[] paletteCache = new int[1024];
         private final long[] zoomCellCache = new long[5*5*5];
+        private final byte[] lightCache = new byte[16*16*16];
         private Reference2IntOpenHashMap<BlockState> getLocalMapping(Mapper mapper) {
             return this.localMapping.computeIfAbsent(mapper, (a_)->new Reference2IntOpenHashMap<>());
         }
@@ -128,6 +129,9 @@ public class WorldConversionFactory {
         var biomes = cache.biomeCache;
         var data = section.section;
         var zoomCells = cache.zoomCellCache;
+        //Light for every voxel up front (one bulk call instead of an interface call per voxel)
+        var light = cache.lightCache;
+        lightSupplier.supplyAll(light);
 
         var vp = blockContainer.data.palette;
         var pc = cache.getPaletteCache(vp.getSize());
@@ -186,9 +190,8 @@ public class WorldConversionFactory {
                 }
                 sample >>>= eBits;
 
-                byte light = lightSupplier.supply(i&0xF, (i>>8)&0xF, (i>>4)&0xF);
                 nonZeroCnt += (bId != 0)?1:0;
-                data[i] = Mapper.composeMappingId(light, bId, biomes[Integer.compress(i,0b1100_1100_1100)]);
+                data[i] = Mapper.composeMappingId(light[i], bId, biomes[Integer.compress(i,0b1100_1100_1100)]);
             }
         } else {
             if (!(blockContainer.data.storage instanceof ZeroBitStorage)) {
@@ -197,13 +200,12 @@ public class WorldConversionFactory {
             int bId = pc[0];
             if (bId == 0) {//Its air
                 for (int i = 0; i <= 0xFFF; i++) {
-                    data[i] = Mapper.airWithLight(lightSupplier.supply(i&0xF, (i>>8)&0xF, (i>>4)&0xF));
+                    data[i] = Mapper.airWithLight(light[i]);
                 }
             } else {
                 nonZeroCnt = 4096;
                 for (int i = 0; i <= 0xFFF; i++) {
-                    byte light = lightSupplier.supply(i&0xF, (i>>8)&0xF, (i>>4)&0xF);
-                    data[i] = Mapper.composeMappingId(light, bId, biomes[Integer.compress(i,0b1100_1100_1100)]);
+                    data[i] = Mapper.composeMappingId(light[i], bId, biomes[Integer.compress(i,0b1100_1100_1100)]);
                 }
             }
         }

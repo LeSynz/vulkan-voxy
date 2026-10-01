@@ -3,6 +3,7 @@ package me.cortex.voxy.common.world.service;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.thread.Service;
 import me.cortex.voxy.common.thread.ServiceManager;
+import me.cortex.voxy.common.voxelization.DataLayerLightingSupplier;
 import me.cortex.voxy.common.voxelization.ILightingSupplier;
 import me.cortex.voxy.common.voxelization.VoxelizedSection;
 import me.cortex.voxy.common.voxelization.WorldConversionFactory;
@@ -58,33 +59,8 @@ public class VoxelIngestService {
 
     @NotNull
     private static ILightingSupplier getLightingSupplier(IngestSection task) {
-        ILightingSupplier supplier = (x,y,z) -> (byte) 0;
-        var sla = task.skyLight;
-        var bla = task.blockLight;
-        boolean sl = sla != null && !sla.isEmpty();
-        boolean bl = bla != null && !bla.isEmpty();
-        if (sl || bl) {
-            if (sl && bl) {
-                supplier = (x,y,z)-> {
-                    int block = Math.min(15,bla.get(x, y, z));
-                    int sky = Math.min(15,sla.get(x, y, z));
-                    return (byte) (sky|(block<<4));
-                };
-            } else if (bl) {
-                supplier = (x,y,z)-> {
-                    int block = Math.min(15,bla.get(x, y, z));
-                    int sky = 0;
-                    return (byte) (sky|(block<<4));
-                };
-            } else {
-                supplier = (x,y,z)-> {
-                    int block = 0;
-                    int sky = Math.min(15,sla.get(x, y, z));
-                    return (byte) (sky|(block<<4));
-                };
-            }
-        }
-        return supplier;
+        //Same values as the previous per voxel lambdas (null/empty layers are no light), plus a bulk path
+        return DataLayerLightingSupplier.of(task.blockLight, task.skyLight);
     }
 
     private static boolean shouldIngestSection(LevelChunkSection section, int cx, int cy, int cz) {

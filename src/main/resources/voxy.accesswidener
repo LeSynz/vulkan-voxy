@@ -23,3 +23,5 @@ accessible field net/minecraft/world/level/block/StairBlock baseState Lnet/minec
 
 accessible field com/mojang/renderpearl/frontend/FrontendGpuDevice backend Lcom/mojang/renderpearl/backend/api/GpuDeviceBackend;
 accessible field com/mojang/renderpearl/backend/vulkan/VulkanDevice enabledFeatures Lcom/mojang/renderpearl/backend/vulkan/init/FeatureSet;
+accessible field net/minecraft/world/level/chunk/DataLayer data [B
+accessible field net/minecraft/world/level/chunk/DataLayer defaultValue I

@@ -80,6 +80,32 @@ Single pass instead of decode + count. Identity test passed but it was much slow
 (the separate count loop vectorises): 38.725 ± 2.045 vs. reference 26.856 ± 1.576 µs/op
 (terrain; sparse/dense the same). Reverted. Deserialize stays at the original ~27 µs/op.
 
+### 6. World ingest — single lighting supplier class + bulk light fill — KEPT
+Files: `common/voxelization/DataLayerLightingSupplier.java` (new), `ILightingSupplier.java`
+(`supplyAll` default method), `WorldConversionFactory.java`, `common/world/service/VoxelIngestService.java`.
+`VoxelIngestService` built one of three lambdas per section and `WorldConversionFactory.convert`
+called it once per voxel (4096 megamorphic interface calls, each doing `DataLayer.get`).
+Now one class (`DataLayerLightingSupplier`, same null/empty/clamp semantics) fills all 4096 light
+bytes from the two nibble arrays in one pass, and the conversion loop reads that array. The
+world importer keeps its own lambda through the default `supplyAll` (unchanged behaviour).
+Needs access to `DataLayer.data`/`defaultValue` (access widener).
+
+Benchmark `ConversionJMH` (one 16³ section from a real `PalettedContainer<BlockState>`, mixed
+light modes, µs/op):
+
+| step | current | reference (original code) in same run |
+|---|---|---|
+| baseline: new supplier class only, convert unchanged (per voxel `supply`) | 21.139 ± 1.447 | 44.281 ± 2.063 |
+| bulk fill via int scratch arrays (tried, slower than the line above → replaced) | 25.888 ± 0.964 | 45.034 ± 2.339 |
+| bulk fill combining nibble bytes directly (kept) | 18.159 ± 0.811 | 45.296 ± 3.465 |
+
+Conversion −60% vs. the original (45.3 → 18.2 µs per section). Note that the reference uses
+the original three-lambda supplier, which is what made its call site megamorphic.
+Identity: `ConversionIdentityTest` (400 sections: palettes of 0–300 random extra states incl.
+global-palette sized ones, biome borders, light modes none/sky/sky+block/filled-default layers;
+voxel arrays and non-air counts vs. the original convert + original lambdas; plus every
+per-voxel `supply` value vs. the original lambdas).
+
 ## GPU-side candidates (not measured — profile on a real GPU)
 - Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
   every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).
