@@ -4,10 +4,9 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import me.cortex.voxy.client.RenderStatistics;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.building.RenderGenerationService;
 import me.cortex.voxy.client.core.rendering.hierachical.AsyncNodeManager;
-import me.cortex.voxy.client.core.rendering.hierachical.HierarchicalOcclusionTraverser;
 import me.cortex.voxy.client.core.rendering.hierachical.NodeCleaner;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
@@ -27,8 +26,9 @@ import static org.lwjgl.vulkan.VK10.vkCmdUpdateBuffer;
 
 //Vulkan port of HierarchicalOcclusionTraverser (same traversal compute shader, MAX_ITERATIONS indirect dispatches)
 public class VkHierarchicalOcclusionTraverser {
-    public static final int MAX_REQUEST_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_REQUEST_QUEUE_SIZE;
-    public static final int MAX_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_QUEUE_SIZE;
+    public static final boolean HIERARCHICAL_SHADER_DEBUG = System.getProperty("voxy.hierarchicalShaderDebug", "false").equals("true");
+    public static final int MAX_REQUEST_QUEUE_SIZE = 50;
+    public static final int MAX_QUEUE_SIZE = 200_000;
 
     private static final int MAX_ITERATIONS = WorldEngine.MAX_LOD_LAYER+1;
     private static final int LOCAL_WORK_SIZE_BITS = 5;
@@ -46,7 +46,7 @@ public class VkHierarchicalOcclusionTraverser {
     private final Int2IntOpenHashMap topNode2idxMapping = new Int2IntOpenHashMap();
     private final int[] idx2topNodeMapping = new int[MAX_QUEUE_SIZE];
     private final VkGpuBuffer topNodeIds = new VkGpuBuffer(MAX_QUEUE_SIZE*4).name("TopNodeIds");
-    private final VkGpuBuffer queueMetaBuffer = new VkGpuBuffer(4*4*MAX_ITERATIONS).name("QueueMeta");
+    private final VkGpuBuffer queueMetaBuffer = new VkGpuBuffer(4*4*MAX_ITERATIONS).name("QueueMeta").indirectUse();
     private final VkGpuBuffer scratchQueueA = new VkGpuBuffer(MAX_QUEUE_SIZE*4).name("ScratchQueueA");
     private final VkGpuBuffer scratchQueueB = new VkGpuBuffer(MAX_QUEUE_SIZE*4).name("ScratchQueueB");
 
@@ -67,7 +67,7 @@ public class VkHierarchicalOcclusionTraverser {
     public static VkShaderBuilder traversalShader(RenderProperties properties, boolean statistics) {
         return VkShaderBuilder.make()
                 .apply(properties::apply)
-                .defineIf("DEBUG", HierarchicalOcclusionTraverser.HIERARCHICAL_SHADER_DEBUG)
+                .defineIf("DEBUG", HIERARCHICAL_SHADER_DEBUG)
                 .define("MAX_ITERATIONS", MAX_ITERATIONS)
                 .define("LOCAL_SIZE_BITS", LOCAL_WORK_SIZE_BITS)
                 .define("MAX_REQUEST_QUEUE_SIZE", MAX_REQUEST_QUEUE_SIZE)
@@ -171,6 +171,12 @@ public class VkHierarchicalOcclusionTraverser {
         MemoryUtil.memPutFloat(ptr, (float) Math.pow(VoxyConfig.CONFIG.sectionRenderDistance*16*32,2));ptr += 4;
     }
 
+    //Clears the counters the traversal accumulates into (the render list count and the request queue count), no barriers
+    public void recordCounterClears(VkCommandBuffer cmd, VkViewport viewport) {
+        viewport.getRenderList().recordFill(cmd, 0, 4, 0);
+        this.requestBuffer.recordFill(cmd, 0, 4, 0);
+    }
+
     public void doTraversal(VkViewport viewport) {
         this.uploadUniform(viewport);
         var cmd = VkContext.get().stream.cmd();
@@ -178,9 +184,6 @@ public class VkHierarchicalOcclusionTraverser {
         if (RenderStatistics.enabled) {
             this.statisticsBuffer.zero();
         }
-
-        //Clear the render output counter
-        viewport.getRenderList().zeroRange(0, 4);
 
         this.traversal
                 .texture(0, viewport.hiz.getHizView(), VkSamplers.nearestMipNearestClamp())
@@ -223,11 +226,11 @@ public class VkHierarchicalOcclusionTraverser {
         this.traversal
                 .ssbo(NODE_QUEUE_SOURCE_BINDING, this.topNodeIds)
                 .ssbo(NODE_QUEUE_SINK_BINDING, this.scratchQueueB);
-        VkBarriers.shaderStorageAndCommand(cmd);
+        VkBarriers.shaderStorageAndUniform(cmd);
         this.traversal.bind(cmd);
         this.traversal.pushConstants(cmd, 0);
         this.traversal.dispatch(cmd, firstDispatchSize, 1, 1);
-        VkBarriers.shaderStorageAndCommand(cmd);
+        VkBarriers.shaderStorageAndCommand(cmd);//the next iterations dispatch size comes from the queue meta buffer written by this one
 
         for (int iter = 1; iter < MAX_ITERATIONS; iter++) {
             //Flipflop buffers
@@ -237,13 +240,17 @@ public class VkHierarchicalOcclusionTraverser {
             this.traversal.pushDescriptors(cmd);
             this.traversal.pushConstants(cmd, iter);
             this.traversal.dispatchIndirect(cmd, this.queueMetaBuffer.buffer, iter * 4L * 4);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            if (iter + 1 < MAX_ITERATIONS) {
+                VkBarriers.shaderStorageAndCommand(cmd);
+            } else {
+                VkBarriers.shaderStorageAndUniform(cmd);
+            }
         }
     }
 
     private void downloadResetRequestQueue() {
+        //The counter is cleared at the start of the next traversal (recordCounterClears)
         DownloadStream.INSTANCE.download(this.requestBuffer, this::forwardDownloadResult);
-        this.requestBuffer.zeroRange(0, 4);
     }
 
     private void forwardDownloadResult(long ptr, long size) {

@@ -1,9 +1,8 @@
 package me.cortex.voxy.client;
 
 import me.cortex.voxy.client.core.backend.GpuBackend;
-import me.cortex.voxy.client.core.gl.Capabilities;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
 import me.cortex.voxy.client.core.vulkan.VkContext;
-import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import net.fabricmc.api.ClientModInitializer;
@@ -23,13 +22,13 @@ public class VoxyClient implements ClientModInitializer {
     private static final HashSet<String> FREX = new HashSet<>();
     private static FileLock EXCLUSIVE_LOCK;
     public static void initVoxyClient() {
+        if (!GpuBackend.isVulkan()) {
+            Logger.error("Voxy Vulkan requires minecraft to be running on the Vulkan graphics backend, voxy is disabled");
+            return;
+        }
         Capabilities.init();//Ensure clinit is called
 
-        if (Capabilities.INSTANCE.hasBrokenDepthSampler) {
-            Logger.error("AMD broken depth sampler detected, voxy does not work correctly and has been disabled, this will hopefully be fixed in the future");
-        }
-
-        boolean systemSupported = Capabilities.INSTANCE.compute && Capabilities.INSTANCE.indirectParameters && !Capabilities.INSTANCE.hasBrokenDepthSampler;
+        boolean systemSupported = Capabilities.INSTANCE.compute && Capabilities.INSTANCE.indirectParameters;
         if (!systemSupported) {
              Logger.error("Voxy is unsupported on your system.");
         }
@@ -51,16 +50,12 @@ public class VoxyClient implements ClientModInitializer {
 
         }
 
-        if (GpuBackend.isVulkan() && !VkContext.get().voxyFeaturesEnabled) {
-            Logger.error("Voxy: minecraft is running on Vulkan but the device does not support the features voxy needs " +
+        if (!VkContext.get().voxyFeaturesEnabled) {
+            Logger.error("Voxy: the device does not support the features voxy needs " +
                     "(drawIndirectCount, fragmentStoresAndAtomics, vertexPipelineStoresAndAtomics, shaderInt64)");
         }
 
         if (systemSupported) {
-
-            if (GpuBackend.isOpenGL()) {
-                SharedIndexBuffer.INSTANCE.id();
-            }
 
             VoxyCommon.setInstanceFactory(VoxyClientInstance::new);
 

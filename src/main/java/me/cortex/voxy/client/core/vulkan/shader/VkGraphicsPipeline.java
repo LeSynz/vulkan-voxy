@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
-import me.cortex.voxy.client.core.gl.Capabilities;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.VkContext;
 import me.cortex.voxy.client.core.vulkan.VkFormats;
 import org.lwjgl.system.MemoryStack;
@@ -113,7 +113,10 @@ public class VkGraphicsPipeline extends VkPipeline {
                     .renderPass(VK_NULL_HANDLE)
                     .subpass(0);
             var p = stack.mallocLong(1);
-            VkContext.check(vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, ci, null, p), "vkCreateGraphicsPipelines");
+            long start = System.nanoTime();
+            VkContext.check(vkCreateGraphicsPipelines(dev, VkShaderCache.pipelineCache(), ci, null, p), "vkCreateGraphicsPipelines");
+            VkShaderCache.pipelineCreateNs += System.nanoTime() - start;
+            VkShaderCache.pipelinesCreated++;
             this.pipeline = p.get(0);
         } finally {
             for (long m : modules) vkDestroyShaderModule(dev, m, null);

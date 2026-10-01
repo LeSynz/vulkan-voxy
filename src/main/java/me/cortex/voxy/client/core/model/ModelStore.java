@@ -1,9 +1,8 @@
 package me.cortex.voxy.client.core.model;
 
-import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
 
-//Model data/colour buffers and the model texture atlas, GlModelStore and VkModelStore implement the gpu side
+//Model data/colour buffers and the model texture atlas, VkModelStore implements the gpu side
 public abstract class ModelStore {
     public static final int MODEL_SIZE = 64;
 
@@ -16,7 +15,7 @@ public abstract class ModelStore {
     }
 
     public static ModelStore create() {
-        return GpuBackend.isVulkan() ? new VkModelStore() : new GlModelStore();
+        return new VkModelStore();
     }
 
     public IGpuBuffer getModelBuffer() {

@@ -42,11 +42,13 @@ public class VkUploadStream extends UploadStream {
         //GL executes the copies one after another, vulkan executes the regions of one vkCmdCopyBuffer in any
         // order, so copies are grouped per destination into batches without overlapping destination ranges.
         // A copy overlapping an earlier one in the current batch starts a new batch after a barrier.
+        boolean anyIndirect = false;
         var batches = new IdentityHashMap<VkGpuBuffer, List<UploadData>>();
         var ranges = new IdentityHashMap<VkGpuBuffer, TreeMap<Long, Long>>();
         for (var entry : uploads) {
             entry.target().assertNotFreed();
             var dst = (VkGpuBuffer) entry.target();
+            anyIndirect |= dst.indirect;
             var used = ranges.computeIfAbsent(dst, k -> new TreeMap<>());
             long start = entry.targetOffset();
             long end = start + entry.size();
@@ -65,7 +67,7 @@ public class VkUploadStream extends UploadStream {
             batches.computeIfAbsent(dst, k -> new ArrayList<>()).add(entry);
         }
         this.recordBatches(cmd, batches);
-        VkBarriers.transferToAll(cmd);
+        VkBarriers.transferToAll(cmd, anyIndirect);
     }
 
     private void recordBatches(org.lwjgl.vulkan.VkCommandBuffer cmd, IdentityHashMap<VkGpuBuffer, List<UploadData>> batches) {

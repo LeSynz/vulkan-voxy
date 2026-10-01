@@ -1,9 +1,129 @@
 # Optimisation log
 
-Phase 2 (CPU side only). GPU-side ideas are listed at the end as candidates to profile on a real
-GPU; none of them has been measured.
+Two parts: **Part 1** is the in game work on a real GPU (RTX 3070) after the port ran, **Part 2** is the earlier CPU
+micro-benchmark work done without a GPU (synthetic data, a cloud VM).
 
-## Method
+# Part 1: in game, real GPU
+
+## Environment and method
+- AMD Ryzen 7 5700X (8c/16t), NVIDIA GeForce RTX 3070 (driver 595.91.07), 31 GB RAM, Ubuntu 26.04, Wayland, OpenJDK 25.0.4.
+  Minecraft 26.3 + Fabric + Sodium 0.9.2 + Voxy Vulkan only (dev client, `./gradlew runBench`), 1920x1080, vsync off,
+  vanilla render distance 4, improved transparency, Voxy config of the author (render distance ~54 chunks, SSAO auto = basic).
+- Scenario (`client/bench/VoxyBenchmark`): the author's survival world (1.4 GB, 104 MB Voxy database, copied fresh for every run),
+  45 s settle after joining, then a 90 s flight (spectator, height 130, circle of radius 700 at 80 blocks/s, the camera yaws with it) which
+  makes Sodium and Voxy load and cull continuously. Every frame time is recorded. Before the flight 4 stationary
+  screenshots at fixed poses (time/weather frozen, HUD hidden) are saved and compared pixel by pixel with the previous build.
+- Reproducibility: three runs of the unmodified `main` gave 867.6 / 865.2 / 864.2 average fps (0.4% spread), the
+  tail percentiles vary by ~5% (they are dominated by garbage collection, see below).
+- Safety net for GPU changes: Khronos validation layer with synchronization validation on top of the benchmark at several window
+  sizes (see README), plus the screenshot comparison. Every kept change was clean on both.
+- Tools that were built for this and stay in the repo: the benchmark, GPU timestamp timers around each Voxy frame section
+  (`-Dvoxy.gpuTimers=true`), per frame barrier/render pass counters, `-Dvoxy.stats=true`, JFR (`-Dbench.jfr=`), a dump of real world
+  sections + real baked model tables (`-Dvoxy.bench.dump`) with a `RealMeshingJMH` benchmark and `RealMeshingIdentityTest`.
+
+## Result
+| 1080p flight, 3 runs each | before (`main`) | after |
+|---|---|---|
+| average fps | 867.6 / 865.2 / 864.2 (mean 865.7) | 931.8 / 927.0 / 913.7 (mean **924.2, +6.8%**) |
+| median frame | 1.08 ms | 1.01-1.02 ms |
+| 1% low fps | 240-251 | 247-261 (+4%) |
+| 0.1% low fps | 89-92 | 89-94 (unchanged, garbage collection) |
+| Voxy GPU time per frame (timestamps) | 0.659 ms | 0.605 ms (-8%) |
+| render passes / barriers per frame | 16.7 / 66.3 | 7.0 / 55.5 (49 with the later batching change) |
+Screenshots of the poses are identical to the previous build within noise (mean abs difference < 0.15/255 per channel, the
+differences are time based noise). Later runs include a further small batching change that was only measured with timers
+on (+1.4%, see below); the table above does not include it.
+
+## Where the frame time goes
+- Without Voxy the same flight runs at ~2150 fps (0.46 ms); with Voxy 866 fps (1.08 ms). Voxy costs 0.62 ms per frame.
+- Voxy's GPU work is 0.659 ms per frame by timestamps (so the game is **GPU bound**, Voxy's CPU time on the render thread is only ~0.06 ms:
+  JFR shows `VoxyRenderSystem.renderFrame` at 9% of the render thread's samples).
+- GPU time per section (1080p, ms), before -> after:
+
+| section | before | after |
+|---|---|---|
+| depth/stencil setup (vanilla depth copy) | 0.024 | 0.020 |
+| opaque terrain draw | 0.321 | 0.313 |
+| HiZ pyramid | 0.054 | 0.032 |
+| hierarchical traversal (5 dependent dispatches) | 0.052 | 0.046 |
+| draw call generation (prep, occlusion test raster, cmdgen, translucent gen) | 0.066 | 0.057 |
+| temporal (newly visible) draw | 0.036 | 0.036 |
+| SSAO | 0.051 | 0.048 |
+| translucent draw | 0.016 | 0.017 |
+| composite into the main target | 0.038 | 0.036 |
+| **total** | **0.659** | **0.605** |
+
+- The opaque draw is vertex bound: replacing its fragment shader with a constant colour only removes 23% of it, skipping the draw entirely
+  gives +26% fps (the upper bound for all terrain draws). 530k quads (~1M triangles) per frame at LOD 0.
+
+## Changes that were kept
+1. **The cost of an INDIRECT_COMMAND_READ access in a barrier** (largest single finding). Measured by adding 100 back to back
+   barriers per frame with different masks: all of storage write -> storage read/write, adding the DRAW_INDIRECT stage, UNIFORM_READ,
+   SAMPLED_READ or TRANSFER stages/accesses cost nothing (100 barriers = 0.0006 ms), but **adding
+   `VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT` to the destination mask costs 1.9 us per barrier** (100 = 0.19 ms), and the generic
+   `MEMORY_READ|MEMORY_WRITE` masks (which include it) cost the same (full ALL_COMMANDS + MEMORY: 2.5 us). Voxy used those masks in about
+   60 of its 66 barriers per frame. Now `VkBarriers` uses explicit read/write masks, and the indirect bit is only added in front
+   of the 8 barriers that actually precede an indirect draw/dispatch consuming buffers written on the GPU (buffers are flagged with
+   `VkGpuBuffer.indirectUse()`, copies/fills to them add the bit). Voxy GPU 0.742 -> 0.713 ms, +2.6% fps, validation clean.
+2. **HiZ pyramid with compute** (`hiz/hiz.comp`): the old build used one fullscreen render pass + one attachment barrier per mip level
+   (11 passes). Now 3 compute dispatches build 4 levels each in shared memory (same reduction maths incl. the hole patching, an R32F image
+   instead of a depth image). 0.054 -> 0.032 ms, render passes 16.7 -> 7 per frame.
+3. Smaller: the occlusion test pass renders depth only (no colour attachment), depth/stencil targets are cleared by `loadOp CLEAR`
+   instead of transfer clears (-1 pass-sized clear and its barriers), the per frame counter clears are one transfer group, the scene uniform is
+   uploaded once per frame (7 fewer barriers; measured -0.004 ms, +1.4% fps with the timers on).
+4. **Startup**: `VkShaderCache` caches the compiled, binding remapped SPIR-V on disk (`.voxy/shader-cache`, keyed by a hash of the exact
+   source) and one `VkPipelineCache` persists the driver's pipelines. Creating the render system on joining a world:
+   413 ms (shaderc 248 ms for 23 shaders) -> **173 ms** with a warm cache (the SPIR-V loads in 1.7 ms; 17 pipelines
+   create in 3.3 ms). `-Dvoxy.noShaderCache=true` turns it off; old files are pruned.
+5. The shutdown hang and memory leak fixes from the first test runs on the 3070 (`ModelBakerySubsystem` loop, texture readback buffer) and
+   forcing improved transparency (see PORTING_PROGRESS.md) are not performance work but were needed to run the benchmark at all.
+
+## Things that were measured and did not help (not kept / no effect)
+- Depth only occlusion test pass: -0.0016 ms (noise level, kept because it is correct).
+- Decoding the quad data with 32-bit instead of 64-bit integers in the vertex shader: identical timing and pixels.
+- Fewer transfer groups beyond the above: each group is cheap now, the remaining ~49 barriers cost <1 us each.
+- Mesher micro-optimisations on real data (see below): not CPU bound.
+
+## Stutters: the worst frames are garbage collection
+- 145 collections in a 135 s run (one per second), pauses 5-14 ms, against a 1 ms frame: those are exactly the 0.1% low frames. The same
+  flight **without Voxy** has similar pauses (92 GCs, avg 8.1 ms, max 21 ms), so most of it is Minecraft/Sodium: 53 GB of sampled allocations
+  over the run, 27% from Sodium's `Tree.<init>` (a ~100 MB/s `long[]` per cull task), Voxy's own share is ~6-10% (descriptor objects, upload
+  stream bookkeeping, biome id strings during ingest). G1's time is dominated by scanning the remembered set and copying survivors.
+- Changing the JVM collector helps much more than anything the mod can do. Same scenario, 70 s flights, 1080p:
+
+| JVM arguments | avg fps | 1% low | 0.1% low | worst frame |
+|---|---|---|---|---|
+| default G1 (3 runs) | 868 / 861 / 891 | 228 / 230 / 228 | 80 / 87 / 86 | 29 / 21 / 30 ms |
+| `-XX:+UseZGC` (3 runs) | 878 / 865 / 857 | 258 / 244 / 244 | 117 / 121 / 117 | 30 / 22 / 18 ms |
+| `-XX:+UseZGC -Xms2G` | 872 | 262 | 125 | 19 ms |
+| `-XX:+UseShenandoahGC` | 853 | 234 | 106 | 37 ms |
+| G1 `-XX:MaxGCPauseMillis=4 -Xms2G` | 874 | 236 | 106 | 26 ms |
+
+  Recommendation (README): `-XX:+UseZGC -Xms2G` (+40% on the 0.1% low, +7-15% on the 1% low, same average fps). A mod cannot set JVM flags.
+
+## Loading
+- Joining the author's world: the first section is on the GPU 0.2-0.4 s after the render system exists, 90% of the 4.5k sections
+  within 1.4-1.8 s (~2200 sections/s), the mesh queue is empty after ~2 s. Render system creation itself is 173 ms (was 413).
+- Real data, 698 real LOD 0 sections with the real model tables: `RenderDataFactory.generateMesh` takes 176 us per section (the synthetic data
+  of Part 2 was 5x heavier). CPU profile of a cold database run (ingesting chunks while flying): meshing 55% of Voxy's worker time
+  (`prepareSectionData` 24%, face generation 26%), ingest 24%, saving 13% (`SaveLoadSystem3.serialize`). It is spread out; a mesher
+  rewrite for a few percent was not worth the risk. Voxy's workers are not the limit when new chunks are loaded (chunk arrival from the
+  integrated server is), and the existing LOD database loads faster than the player can see it.
+
+## Candidates not done (need real design work or visual trade offs)
+- One persistent kernel for the 5 hierarchical traversal dispatches (46 us, latency bound).
+- Draw opaque sections front to back (early-z for the 23% fragment share; counting sort by distance already exists for translucents).
+- A compute pre-pass culling quads before the vertex stage / mesh shaders (the opaque pass is vertex bound at 0.31 ms).
+- Skipping the temporal pass when empty (`VK_EXT_conditional_rendering`), merging the depth setup and composite passes, half resolution SSAO.
+- Reducing Voxy's allocation rate further (~6-10% of the total allocation rate, not worth it by itself).
+- A larger LOD quality/performance lever already exists in the config (sub division size): LOD 0 is used out to very far distances.
+
+# Part 2: CPU micro-benchmarks (earlier, synthetic data)
+
+The rest of this file is the earlier work done in a cloud VM without a GPU: JMH benchmarks plus byte identical JUnit tests against a
+verbatim copy of the original code. Its environment is different (4 vCPU Xeon).
+
+## Method (CPU micro-benchmarks)
 - Environment: 4 vCPU Intel Xeon @ 2.80GHz (shared cloud VM), 15 GB RAM, Temurin 25.0.4.
   Shared hardware → expect a few % run-to-run noise; only changes well outside the JMH error
   bars are kept.
@@ -17,7 +137,7 @@ GPU; none of them has been measured.
   bootstrapped in-process (`McBootstrap`) so real block states/opacities are used.
 - Rule: a change is kept only if it is measurably faster and the identity test passes.
 
-## Summary
+## Summary (CPU micro-benchmarks)
 | target | result |
 |---|---|
 | LOD building (mipping) | kept #1 + #2: terrain −20%, noise −17% per section |
@@ -30,7 +150,7 @@ GPU; none of them has been measured.
 All kept changes have a byte-identical JUnit test against a verbatim copy of the original code
 (`./gradlew test`). All numbers are from the CPU-only build environment.
 
-## Results
+## Results (CPU micro-benchmarks)
 
 ### 1. LOD mipping — `Mipper.mip` uniform fast path — KEPT
 File: `src/main/java/me/cortex/voxy/common/world/other/Mipper.java`.
@@ -188,7 +308,7 @@ loop structure of the hand-tuned merger, or would only pay off in-game (for prof
 - `acquireNeighborData` copies 6×1024 longs through the section tracker per mesh; reading the
   neighbour arrays on demand would avoid the copies (needs care with the tracker's reuse).
 
-## GPU-side candidates (not measured — profile on a real GPU)
+## GPU-side candidates written before a GPU was available (superseded by Part 1)
 No GPU-side change was made in Phase 2. The smallest candidate, an in-memory `VkPipelineCache`,
 is not clearly safe either: `VkContext` has no teardown hook, so the cache would show up as a
 leaked object when Minecraft destroys the device (validation layers report it). It needs a

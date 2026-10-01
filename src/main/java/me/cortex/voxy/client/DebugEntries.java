@@ -1,7 +1,6 @@
 package me.cortex.voxy.client;
 
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
-import me.cortex.voxy.client.core.util.GPUTiming;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -53,7 +52,6 @@ public class DebugEntries {
         if ((entry!=DebugScreenEntryStatus.NEVER)!=previousGpuDebugEnabled) {
             previousGpuDebugEnabled ^= true;
 
-            GPUTiming.INSTANCE.setEnabled(previousGpuDebugEnabled);
             RenderStatistics.enabled = previousGpuDebugEnabled;
             var renderer = Minecraft.getInstance().levelExtractor;
             if (renderer!=null)renderer.allChanged();

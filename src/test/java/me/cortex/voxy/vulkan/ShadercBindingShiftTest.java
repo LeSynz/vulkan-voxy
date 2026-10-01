@@ -1,6 +1,6 @@
 package me.cortex.voxy.vulkan;
 
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.shader.SpirvReflection;
 import me.cortex.voxy.client.core.vulkan.shader.VkShaderCompiler;
 import org.junit.jupiter.api.Test;

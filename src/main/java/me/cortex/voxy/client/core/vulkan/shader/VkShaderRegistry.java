@@ -1,6 +1,6 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
-import me.cortex.voxy.client.core.NormalRenderPipeline;
+import me.cortex.voxy.client.core.FogMode;
 import me.cortex.voxy.client.core.RenderProperties;
 import me.cortex.voxy.client.core.vulkan.render.VkBoundRenderer;
 import me.cortex.voxy.client.core.vulkan.render.VkRenderPipeline;
@@ -36,7 +36,7 @@ public final class VkShaderRegistry {
             out.put("traversal" + p, VkHierarchicalOcclusionTraverser.traversalShader(props, false));
             out.put("traversal_stats" + p, VkHierarchicalOcclusionTraverser.traversalShader(props, true));
             out.put("stencil_depth_setup" + p, VkRenderPipeline.depthStencilSetupShader(props));
-            for (var fog : NormalRenderPipeline.FogMode.values()) {
+            for (var fog : FogMode.values()) {
                 out.put("final_blit_" + fog.name().toLowerCase(java.util.Locale.ROOT) + p, VkRenderPipeline.finalBlitShader(props, fog));
             }
             out.put("ssao_basic" + p, VkSSAO.ssaoShader(props, false, 0));

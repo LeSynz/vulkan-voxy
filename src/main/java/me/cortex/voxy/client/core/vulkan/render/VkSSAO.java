@@ -1,9 +1,9 @@
 package me.cortex.voxy.client.core.vulkan.render;
 
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.SSAO;
-import me.cortex.voxy.client.core.gl.Capabilities;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.SSAOMode;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.client.core.vulkan.*;
 import me.cortex.voxy.client.core.vulkan.shader.VkComputePipeline;
@@ -17,13 +17,13 @@ import static org.lwjgl.vulkan.VK10.*;
 
 //Vulkan port of SSAO (same compute shader, matrices in a uniform buffer instead of loose uniforms)
 public class VkSSAO {
-    public static VkSSAO create(RenderProperties properties, SSAO.SSAOMode mode) {
+    public static VkSSAO create(RenderProperties properties, SSAOMode mode) {
         return switch (mode) {
             case BASIC -> new VkSSAO(properties, false, 0);
             case BETTER -> new VkSSAO(properties, true, 12);
             case BEST -> new VkSSAO(properties, true, 24);
             //No gpu memory query on vulkan, same fallback as GL without NVX_gpu_memory_info
-            case AUTO -> Capabilities.INSTANCE.isAmd ? create(properties, SSAO.SSAOMode.BETTER) : create(properties, SSAO.SSAOMode.BASIC);
+            case AUTO -> Capabilities.INSTANCE.isAmd ? create(properties, SSAOMode.BETTER) : create(properties, SSAOMode.BASIC);
         };
     }
 
@@ -100,8 +100,7 @@ public class VkSSAO {
         this.ssaoCompute.bind(cmd);
         this.ssaoCompute.dispatch(cmd, (viewport.width+7)/8, (viewport.height+7)/8, 1);
         //Storage image writes -> later attachment use/sampling
-        VkBarriers.barrier(cmd, org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, org.lwjgl.vulkan.VK13.VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, org.lwjgl.vulkan.VK13.VK_ACCESS_2_MEMORY_READ_BIT | org.lwjgl.vulkan.VK13.VK_ACCESS_2_MEMORY_WRITE_BIT);
+        VkBarriers.storageToAll(cmd);
     }
 
     public void free() {

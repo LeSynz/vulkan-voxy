@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.rendering.hierachical;
 
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.section.geometry.ISectionGeometryData;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.client.core.vulkan.VkBarriers;
@@ -75,7 +75,7 @@ public class VkNodeGpuWriter implements INodeGpuWriter {
         this.scatterWrite.bind(cmd);
         this.scatterWrite.pushConstants(cmd, count);
         this.scatterWrite.dispatch(cmd, (count+127)/128, 1, 1);
-        VkBarriers.shaderStorageAndCommand(cmd);
+        VkBarriers.shaderStorageAndUniform(cmd);
     }
 
     @Override

@@ -9,5 +9,7 @@ public interface IVkTerrainTargets {
     //Depth/stencil format of the targets
     int depthFormat();
     void beginOpaque(VkCommandBuffer cmd, VkViewport viewport);
+    //Depth/stencil attachment only (occlusion test pass)
+    void beginDepthOnly(VkCommandBuffer cmd, VkViewport viewport);
     void beginTranslucent(VkCommandBuffer cmd, VkViewport viewport);
 }

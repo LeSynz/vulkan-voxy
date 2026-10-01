@@ -1,93 +1,96 @@
-#version 460 core
+#version 450
 
-#extension GL_KHR_shader_subgroup_arithmetic: require
-#extension GL_KHR_shader_subgroup_basic : require
-#extension GL_KHR_shader_subgroup_clustered : require
+//Builds up to 4 levels of the hierarchical depth pyramid per dispatch: every 16x16 tile of the first level is reduced in
+// shared memory to the next 3 levels. Each level is the reduction of the 2x2 texels below it (same reduction, including
+// the hole patching, as the single level at a time fullscreen passes this replaced)
 
+#import <voxy:util/depthutils.glsl>
 
-//64x64 reduction
-layout(local_size_x=256) in;
+layout(local_size_x = 16, local_size_y = 16) in;
 
-const uint spread[64] = {
-    0x11100100, 0x13120302, 0x31302120, 0x33322322, 0x15140504, 0x17160706, 0x35342524, 0x37362726,
-    0x51504140, 0x53524342, 0x71706160, 0x73726362, 0x55544544, 0x57564746, 0x75746564, 0x77766766,
-    0x19180908, 0x1b1a0b0a, 0x39382928, 0x3b3a2b2a, 0x1d1c0d0c, 0x1f1e0f0e, 0x3d3c2d2c, 0x3f3e2f2e,
-    0x59584948, 0x5b5a4b4a, 0x79786968, 0x7b7a6b6a, 0x5d5c4d4c, 0x5f5e4f4e, 0x7d7c6d6c, 0x7f7e6f6e,
-    0x91908180, 0x93928382, 0xb1b0a1a0, 0xb3b2a3a2, 0x95948584, 0x97968786, 0xb5b4a5a4, 0xb7b6a7a6,
-    0xd1d0c1c0, 0xd3d2c3c2, 0xf1f0e1e0, 0xf3f2e3e2, 0xd5d4c5c4, 0xd7d6c7c6, 0xf5f4e5e4, 0xf7f6e7e6,
-    0x99988988, 0x9b9a8b8a, 0xb9b8a9a8, 0xbbbaabaa, 0x9d9c8d8c, 0x9f9e8f8e, 0xbdbcadac, 0xbfbeafae,
-    0xd9d8c9c8, 0xdbdacbca, 0xf9f8e9e8, 0xfbfaebea, 0xdddccdcc, 0xdfdecfce, 0xfdfcedec, 0xfffeefee
+layout(binding = 0) uniform sampler2D srcTex;//Source depth for the first dispatch, the last level of the previous dispatch afterwards
+layout(binding = 0, r32f) uniform writeonly image2D dstLevel0;
+layout(binding = 1, r32f) uniform writeonly image2D dstLevel1;
+layout(binding = 2, r32f) uniform writeonly image2D dstLevel2;
+layout(binding = 3, r32f) uniform writeonly image2D dstLevel3;
+
+layout(push_constant) uniform PushConstants {
+    ivec2 baseDim;//Size of the first level written by this dispatch
+    int levels;//Number of levels written by this dispatch (1-4)
 };
 
-uint swizzleId(uint id) {
-    //swizzel to z curve
-    return bitfieldExtract(spread[id>>2], (int(id)&3)*8, 8);
-}
+shared float tile[16*16];
 
-layout(location = 0) uniform vec2 invImSize;
-
-layout(binding = 0) uniform sampler2D mip_0;
-layout(binding = 1, r32f) uniform restrict writeonly image2D mip_1;
-layout(binding = 2, r32f) uniform restrict writeonly image2D mip_2;
-layout(binding = 3, r32f) uniform restrict writeonly image2D mip_3;
-layout(binding = 4, r32f) uniform restrict writeonly image2D mip_4;
-layout(binding = 5, r32f) uniform restrict writeonly image2D mip_5;
-layout(binding = 6, r32f) uniform restrict writeonly image2D mip_6;
-
-float getReduce2x2(ivec2 pos) {//w.r.t mip_1
-    vec4 data = textureGather(mip_0, vec2(pos*2+1)*invImSize);
-    float ret = max(max(data.x,data.y),max(data.z,data.w));
-    imageStore(mip_1, pos, vec4(ret));
-    return ret;
-}
-
-float getReduce4x4(ivec2 pos) {//w.r.t mip_2
-    ivec2 pos2 = pos*2;
-    float ret = max(max(getReduce2x2(pos2+ivec2(0,0)),getReduce2x2(pos2+ivec2(0,1))),
-                    max(getReduce2x2(pos2+ivec2(1,0)),getReduce2x2(pos2+ivec2(1,1))));
-    imageStore(mip_2, pos, vec4(ret));
-    return ret;
-}
-
-//This is where the funny happens
-// since we swizzeled the id when getting the value, our ordering within the subgroup should be z ordered
-// we sadly cannot use the full subgroup reduction as wave size is 32 and we need a square pow2 values, so 16, sad beep
-float getReduceWave(ivec2 pos, float value) {
-    float reduced;
-    subgroupBarrier();//Wait for active threads in subgroup
-    //Now do clustered reduction, with exploiting dropout
-    reduced = subgroupClusteredMax(value, 4);
-    if ((gl_SubgroupInvocationID&0x3)==0) {//root writes
-        imageStore(mip_3, pos>>1, vec4(reduced));
+float reduce4(vec4 depths) {
+    bvec4 cv = equal(vec4(FAR), depths);
+    if (any(cv)) {//Patch holes (its very dodgy but should work :tm:, should clamp it to the first 3 levels)
+        depths = mix(vec4(NEAR), depths, cv);
     }
-    //could exit 3/4 of the threads here if wanted
-    subgroupBarrier();//Wait for active threads in subgroup
-    reduced = subgroupClusteredMax(value, 16);
-    if ((gl_SubgroupInvocationID&0xF)==0) {//root writes
-        imageStore(mip_4, pos>>2, vec4(reduced));
-    }
-    return reduced;
+    return REDUCTION(REDUCTION(depths.x, depths.y), REDUCTION(depths.z, depths.w));
 }
-shared float values[16];
+
+ivec2 dimAt(int lvl) {
+    return max(baseDim >> lvl, ivec2(1));
+}
+
+void storeLevel(int lvl, ivec2 coord, float value) {
+    if (lvl == 1) {
+        imageStore(dstLevel1, coord, vec4(value));
+    } else if (lvl == 2) {
+        imageStore(dstLevel2, coord, vec4(value));
+    } else {
+        imageStore(dstLevel3, coord, vec4(value));
+    }
+}
+
+//Computes level lvl (1-3) of this tile from the previous level in shared memory
+void reduceLevel(int lvl, ivec2 lid, ivec2 group) {
+    int tileSize = 16 >> lvl;
+    bool onTile = lid.x < tileSize && lid.y < tileSize;
+    ivec2 g = group*tileSize + lid;
+    float v = 0.0f;
+    if (onTile && all(lessThan(g, dimAt(lvl)))) {
+        ivec2 prevDim = dimAt(lvl-1);
+        ivec2 c = g*2;
+        //Clamp to the edge like the sampler did, only matters once a dimension reaches 1
+        ivec2 l0 = min(c, prevDim-1) - group*(tileSize*2);
+        ivec2 l1 = min(c+ivec2(1,0), prevDim-1) - group*(tileSize*2);
+        ivec2 l2 = min(c+ivec2(0,1), prevDim-1) - group*(tileSize*2);
+        ivec2 l3 = min(c+ivec2(1,1), prevDim-1) - group*(tileSize*2);
+        v = reduce4(vec4(tile[l0.y*16+l0.x], tile[l1.y*16+l1.x], tile[l2.y*16+l2.x], tile[l3.y*16+l3.x]));
+        if (lvl < levels) {
+            storeLevel(lvl, g, v);
+        }
+    }
+    barrier();//Everyone is done reading the previous level
+    if (onTile) {
+        tile[lid.y*16+lid.x] = v;
+    }
+    barrier();
+}
+
 void main() {
-    uint id = swizzleId(gl_LocalInvocationID.x);
-    //(ivec2(gl_WorkGroupID.xy)*64+ivec2(id&0xFU, id>>4)*4)/4;
-    ivec2 wavePos = ivec2(gl_WorkGroupID.xy)*16+ivec2(id&0xFU, id>>4);
-    float value = getReduce4x4(wavePos);
-    value = getReduceWave(wavePos, value);//Reduced to 4x4 across all threads and warps
-    if ((gl_LocalInvocationID.x&0xFU)==0) {
-        values[gl_LocalInvocationID.x>>4] = value;
+    ivec2 lid = ivec2(gl_LocalInvocationID.xy);
+    ivec2 group = ivec2(gl_WorkGroupID.xy);
+
+    {
+        ivec2 g = group*16 + lid;
+        vec2 uv = (vec2(g) + 0.5f) / vec2(baseDim);
+        float v = reduce4(textureGather(srcTex, uv, 0));
+        if (all(lessThan(g, baseDim))) {
+            imageStore(dstLevel0, g, vec4(v));
+        }
+        tile[lid.y*16+lid.x] = v;
     }
-    barrier();//Wait for all
-    if ((gl_LocalInvocationID.x>>2)!=0) {
-        return;//Discard all but 4 threads
-    }
-    uint i = gl_LocalInvocationID.x*4;
-    value = max(max(values[i],values[i+1]),max(values[i+2],values[i+3]));//Is funny is already in spread order
-    imageStore(mip_5, ivec2(gl_WorkGroupID.xy)*2+ivec2(gl_LocalInvocationID.x&1u,gl_LocalInvocationID.x>>1), vec4(value));
-    subgroupBarrier();
-    value = subgroupMax(value);
-    if (gl_LocalInvocationID.x==0) {
-        imageStore(mip_6, ivec2(gl_WorkGroupID.xy), vec4(value));
+    barrier();
+
+    if (levels > 1) {
+        reduceLevel(1, lid, group);
+        if (levels > 2) {
+            reduceLevel(2, lid, group);
+            if (levels > 3) {
+                reduceLevel(3, lid, group);
+            }
+        }
     }
 }

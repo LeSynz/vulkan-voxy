@@ -8,7 +8,7 @@ import me.cortex.voxy.common.Logger;
 //Vulkan section metadata + geometry store. No sparse buffers on vulkan: the geometry buffer is a single device
 // local allocation, sized from the device limits and shrunk on allocation failure.
 public class VkSectionGeometryData implements ISectionGeometryData {
-    public static final int SECTION_METADATA_SIZE = BasicSectionGeometryData.SECTION_METADATA_SIZE;
+    public static final int SECTION_METADATA_SIZE = 32;
     private static final long MIN_GEOMETRY_SIZE = 512L*1024*1024;
 
     private final VkGpuBuffer sectionMetadataBuffer;

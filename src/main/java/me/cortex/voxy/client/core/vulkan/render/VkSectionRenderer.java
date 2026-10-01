@@ -2,8 +2,8 @@ package me.cortex.voxy.client.core.vulkan.render;
 
 import me.cortex.voxy.client.RenderStatistics;
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.Capabilities;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.model.VkModelStore;
 import me.cortex.voxy.client.core.rendering.section.geometry.VkSectionGeometryData;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
@@ -139,9 +139,10 @@ public class VkSectionRenderer {
         this.terrainShader = terrainShader(properties, tints, false).compileGraphics(terrainState);
         this.translucentTerrainShader = terrainShader(properties, tints, true).compileGraphics(terrainState.copy()
                 .blend(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA));
+        //The occlusion test only needs the depth/stencil attachment, the fragments just write the visibility buffer
         this.cullShader = cullShader(properties).compileGraphics(terrainState.copy()
                 .depthWrite(false)
-                .colorWriteMask(0));
+                .colorFormats());
 
         this.commandGenShader = commandGenShader(RenderStatistics.enabled).compileCompute();
         this.prepShader = prepShader().compileCompute();
@@ -149,7 +150,21 @@ public class VkSectionRenderer {
         this.translucentGenShader = translucentGenShader().compileCompute();
     }
 
+    //The uniform is identical for every use within a frame
+    private VkViewport uniformViewport;
+    private int uniformFrame = -1;
+
+    //Clears the per frame counters of the draw call generation (no barriers, see VkRenderPipeline)
+    public void recordCounterClears(VkCommandBuffer cmd) {
+        this.distanceCountBuffer.recordFill(cmd, 0, 1024*4, 0);
+    }
+
     private void uploadUniformBuffer(VkViewport viewport) {
+        if (this.uniformViewport == viewport && this.uniformFrame == viewport.frameId) {
+            return;
+        }
+        this.uniformViewport = viewport;
+        this.uniformFrame = viewport.frameId;
         long ptr = UploadStream.INSTANCE.upload(this.uniform, 0, 1024);
 
         var mat = new Matrix4f(viewport.MVP);
@@ -231,6 +246,7 @@ public class VkSectionRenderer {
             this.prepShader.dispatch(cmd, 1, 1, 1);
             VkBarriers.shaderStorageAndCommand(cmd);
         }
+        VkGpuTimer.mark(cmd, "dc prep");
 
         {//Test occlusion (rasterize section AABBs against the opaque depth, fragments mark the section visible)
             this.cullShader
@@ -238,16 +254,16 @@ public class VkSectionRenderer {
                     .ssbo(1, this.geometryManager.getMetadataBuffer())
                     .ssbo(2, viewport.visibilityBuffer)
                     .ssbo(3, viewport.indirectLookupBuffer);
-            this.targets.beginOpaque(cmd, viewport);
+            this.targets.beginDepthOnly(cmd, viewport);
             this.cullShader.bind(cmd);
             vkCmdBindIndexBuffer(cmd, this.indices.cube.buffer, 0, VK_INDEX_TYPE_UINT16);
             vkCmdDrawIndexedIndirect(cmd, viewport.drawCountCallBuffer.buffer, 6*4, 1, DRAW_COMMAND_STRIDE);
             VkRendering.end(cmd);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
         }
+        VkGpuTimer.mark(cmd, "dc cull raster");
 
         {//Generate the commands
-            this.distanceCountBuffer.zeroRange(0, 1024*4);
             if (RenderStatistics.enabled) {
                 this.statisticsBuffer.zero();
                 this.commandGenShader.ssbo(STATISTICS_BUFFER_BINDING, this.statisticsBuffer);
@@ -264,7 +280,7 @@ public class VkSectionRenderer {
             VkBarriers.shaderStorage(cmd);
             this.commandGenShader.bind(cmd);
             this.commandGenShader.dispatchIndirect(cmd, viewport.drawCountCallBuffer.buffer, 0);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
 
             if (RenderStatistics.enabled) {
                 DownloadStream.INSTANCE.download(this.statisticsBuffer, down->{
@@ -278,6 +294,8 @@ public class VkSectionRenderer {
                 });
             }
         }
+
+        VkGpuTimer.mark(cmd, "dc cmdgen");
 
         {//Translucency sorting
             this.prefixSumShader.ssbo(0, this.distanceCountBuffer);
@@ -293,10 +311,10 @@ public class VkSectionRenderer {
                     .ssbo(3, this.geometryManager.getMetadataBuffer())
                     .ssbo(4, viewport.indirectLookupBuffer)
                     .ssbo(5, this.distanceCountBuffer);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
             this.translucentGenShader.bind(cmd);
             this.translucentGenShader.dispatchIndirect(cmd, viewport.drawCountCallBuffer.buffer, 0);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
         }
     }
 

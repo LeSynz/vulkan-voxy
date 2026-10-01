@@ -3,9 +3,8 @@ package me.cortex.voxy.client.config;
 import me.cortex.voxy.client.ClientSessionEvents;
 import me.cortex.voxy.client.config.SodiumConfigBuilder.*;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
-import me.cortex.voxy.client.core.NormalRenderPipeline;
-import me.cortex.voxy.client.core.SSAO;
-import me.cortex.voxy.client.core.util.IrisUtil;
+import me.cortex.voxy.client.core.FogMode;
+import me.cortex.voxy.client.core.SSAOMode;
 import me.cortex.voxy.common.util.cpu.CpuLayout;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import net.caffeinemc.mods.sodium.api.config.ConfigEntryPoint;
@@ -37,7 +36,7 @@ public class VoxyConfigMenu implements ConfigEntryPoint {
                         if (instance != null) {
                             instance.updateDedicatedThreads();
                         }
-                    }, "voxy:enabled").register("voxy:iris_reload", ()->IrisUtil.reload());
+                    }, "voxy:enabled");
                 },
                 new Page(Component.translatable("voxy.config.general"),
                         new Group(
@@ -59,7 +58,7 @@ public class VoxyConfigMenu implements ConfigEntryPoint {
                                                 }
                                                 VoxyCommon.shutdownInstance();
                                             }
-                                        }).setPostChangeFlags(RENDER_RELOAD, "voxy:iris_reload").setEnabler(null)
+                                        }).setPostChangeFlags(RENDER_RELOAD).setEnabler(null)
                         ), new Group(
                                 new IntOption(
                                         "voxy:thread_count",
@@ -95,7 +94,6 @@ public class VoxyConfigMenu implements ConfigEntryPoint {
                                                 }
                                             }
                                         },"voxy:enabled", RENDER_RELOAD)
-                                        .setPostChangeFlags("voxy:iris_reload")
                                         .setEnabler("voxy:enabled")
                         ), new Group(
                                 new IntOption(
@@ -124,19 +122,19 @@ public class VoxyConfigMenu implements ConfigEntryPoint {
                         ), new Group(
                                 new EnumOption<>(
                                         "voxy:eviromental_fog",
-                                        NormalRenderPipeline.FogMode.class,
+                                        FogMode.class,
                                         Component.translatable("voxy.config.general.environmental_fog"),
                                         CFG::getFogMode, CFG::setFogMode)
                                         .setNameProvider(c->Component.translatable("voxy.config.general.environmental_fog."+c.name().toLowerCase(Locale.ROOT)))
                                         .setPostChangeFlags(RENDER_RELOAD),
                                 new EnumOption<>("voxy:ssao_mode",
-                                        SSAO.SSAOMode.class,
+                                        SSAOMode.class,
                                         Component.translatable("voxy.config.general.ssao_mode"),
                                         CFG::getSSAOMode, CFG::setSSAOMode)
                                         .setNameProvider(c->Component.translatable("voxy.config.general.ssao_mode."+c.name().toLowerCase(Locale.ROOT)))
                                         .setImpact(OptionImpact.MEDIUM)//TODO make it on igpus this is high
                                         .setPostChangeFlags(RENDER_RELOAD)
-                        ).setEnablerInherit(s->!IrisUtil.irisShadersEnabledInConfig(), ConfigState.UPDATE_ON_REBUILD)
+                        )
                 ).setEnablerAND("voxy:enabled", "voxy:rendering"));
 
     }

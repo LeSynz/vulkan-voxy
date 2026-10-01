@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
-import me.cortex.voxy.client.core.gl.shader.ShaderLoader;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderLoader;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.ThreadUtils;
 import org.lwjgl.system.MemoryUtil;
@@ -107,7 +107,6 @@ public class VkShaderBuilder {
     public String processedSource(ShaderType type, boolean isIntel) {
         String src = this.sources.get(type);
         var defs = new LinkedHashMap<>(this.defines);
-        defs.put("VOXY_VULKAN", "");
         if (isIntel) defs.put("IS_INTEL", "");
         if (ThreadUtils.isWindows) defs.put("IS_WINDOWS", "");
         String defStr = defs.entrySet().stream().map(a -> "#define " + a.getKey() + " " + a.getValue() + "\n").collect(Collectors.joining());
@@ -124,8 +123,20 @@ public class VkShaderBuilder {
         try {
             for (var type : this.sources.keySet()) {
                 String src = this.processedSource(type, isIntel);
+                String key = VkShaderCache.key(src, type);
+                var cached = VkShaderCache.loadSpirv(key);
+                if (cached != null) {
+                    VkShaderCache.spirvHits++;
+                    out.put(type, cached);
+                    continue;
+                }
+                VkShaderCache.spirvMisses++;
                 try {
-                    out.put(type, VkShaderCompiler.compile(this.name + "." + type.name().toLowerCase(Locale.ROOT), src, type));
+                    long start = System.nanoTime();
+                    var compiled = VkShaderCompiler.compile(this.name + "." + type.name().toLowerCase(Locale.ROOT), src, type);
+                    VkShaderCache.spirvCompileNs += System.nanoTime() - start;
+                    VkShaderCache.storeSpirv(key, compiled);
+                    out.put(type, compiled);
                 } catch (VkShaderCompiler.CompileException e) {
                     Logger.error(e.getMessage());
                     try {

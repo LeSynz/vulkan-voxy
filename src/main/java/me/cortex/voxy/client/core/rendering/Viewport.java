@@ -2,8 +2,6 @@ package me.cortex.voxy.client.core.rendering;
 
 import me.cortex.voxy.client.core.RenderProperties;
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
-import me.cortex.voxy.client.core.rendering.util.DepthFramebuffer;
-import me.cortex.voxy.client.core.rendering.util.HiZBuffer;
 import net.caffeinemc.mods.sodium.client.util.FogParameters;
 import net.minecraft.util.Mth;
 import org.joml.*;
@@ -11,10 +9,6 @@ import org.joml.*;
 import java.lang.reflect.Field;
 
 public abstract class Viewport <A extends Viewport<A>> {
-    //public final HiZBuffer2 hiZBuffer = new HiZBuffer2();
-    public final HiZBuffer hiZBuffer;
-    public final DepthFramebuffer depthBoundingBuffer;
-
     private static final Field planesField;
     static {
         try {
@@ -45,11 +39,6 @@ public abstract class Viewport <A extends Viewport<A>> {
     public final RenderProperties properties;
 
     protected Viewport(RenderProperties properties) {
-        this(properties, true);
-    }
-
-    //glResources: false for the vulkan viewport, which owns its own hiz/depth bounding resources
-    protected Viewport(RenderProperties properties, boolean glResources) {
         Vector4f[] planes = null;
         try {
              planes = (Vector4f[]) planesField.get(this.frustum);
@@ -59,18 +48,13 @@ public abstract class Viewport <A extends Viewport<A>> {
         this.frustumPlanes = planes;
 
         this.properties = properties;
-        this.hiZBuffer = glResources?new HiZBuffer(properties):null;
-        this.depthBoundingBuffer = glResources?new DepthFramebuffer():null;
     }
 
     public final void delete() {
         this.delete0();
     }
 
-    protected void delete0() {
-        if (this.hiZBuffer != null) this.hiZBuffer.free();
-        if (this.depthBoundingBuffer != null) this.depthBoundingBuffer.free();
-    }
+    protected abstract void delete0();
 
     public A setVanillaProjection(Matrix4fc projection) {
         this.vanillaProjection.set(projection);
@@ -129,11 +113,7 @@ public abstract class Viewport <A extends Viewport<A>> {
     }
 
     //Resize per viewport render targets to the current size
-    protected void resizeResources() {
-        if (this.depthBoundingBuffer.resize(this.width, this.height)) {
-            this.depthBoundingBuffer.clear(this.properties.inverseClearDepth());
-        }
-    }
+    protected abstract void resizeResources();
 
     public abstract IGpuBuffer getRenderList();
 }

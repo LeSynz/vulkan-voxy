@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.VkContext;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
