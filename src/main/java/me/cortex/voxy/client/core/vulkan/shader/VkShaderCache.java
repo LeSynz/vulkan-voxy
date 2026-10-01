@@ -41,12 +41,34 @@ public final class VkShaderCache {
             dir = Minecraft.getInstance().gameDirectory.toPath().resolve(".voxy").resolve("shader-cache");
             try {
                 Files.createDirectories(dir);
+                prune(dir);
             } catch (IOException e) {
                 Logger.warn("Could not create the shader cache directory, shader caching disabled", e);
                 dir = null;
             }
         }
         return dir;
+    }
+
+    //Shaders change with every voxy update, keep the directory from growing forever: drop the least recently written
+    // files once there are far more than a full set (a full set is ~25 files)
+    private static void prune(Path dir) {
+        try (var files = Files.list(dir)) {
+            var all = files.filter(p -> p.getFileName().toString().endsWith(".spv")).sorted(java.util.Comparator.comparingLong(p -> {
+                try {
+                    return Files.getLastModifiedTime(p).toMillis();
+                } catch (IOException e) {
+                    return 0L;
+                }
+            })).toList();
+            if (all.size() > 400) {
+                for (int i = 0; i < all.size() - 200; i++) {
+                    Files.deleteIfExists(all.get(i));
+                }
+            }
+        } catch (Exception e) {
+            //Not important
+        }
     }
 
     public static String key(String source, ShaderType type) {
