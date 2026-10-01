@@ -150,7 +150,21 @@ public class VkSectionRenderer {
         this.translucentGenShader = translucentGenShader().compileCompute();
     }
 
+    //The uniform is identical for every use within a frame
+    private VkViewport uniformViewport;
+    private int uniformFrame = -1;
+
+    //Clears the per frame counters of the draw call generation (no barriers, see VkRenderPipeline)
+    public void recordCounterClears(VkCommandBuffer cmd) {
+        this.distanceCountBuffer.recordFill(cmd, 0, 1024*4, 0);
+    }
+
     private void uploadUniformBuffer(VkViewport viewport) {
+        if (this.uniformViewport == viewport && this.uniformFrame == viewport.frameId) {
+            return;
+        }
+        this.uniformViewport = viewport;
+        this.uniformFrame = viewport.frameId;
         long ptr = UploadStream.INSTANCE.upload(this.uniform, 0, 1024);
 
         var mat = new Matrix4f(viewport.MVP);
@@ -250,7 +264,6 @@ public class VkSectionRenderer {
         VkGpuTimer.mark(cmd, "dc cull raster");
 
         {//Generate the commands
-            this.distanceCountBuffer.zeroRange(0, 1024*4);
             if (RenderStatistics.enabled) {
                 this.statisticsBuffer.zero();
                 this.commandGenShader.ssbo(STATISTICS_BUFFER_BINDING, this.statisticsBuffer);

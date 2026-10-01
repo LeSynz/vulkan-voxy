@@ -171,6 +171,12 @@ public class VkHierarchicalOcclusionTraverser {
         MemoryUtil.memPutFloat(ptr, (float) Math.pow(VoxyConfig.CONFIG.sectionRenderDistance*16*32,2));ptr += 4;
     }
 
+    //Clears the counters the traversal accumulates into (the render list count and the request queue count), no barriers
+    public void recordCounterClears(VkCommandBuffer cmd, VkViewport viewport) {
+        viewport.getRenderList().recordFill(cmd, 0, 4, 0);
+        this.requestBuffer.recordFill(cmd, 0, 4, 0);
+    }
+
     public void doTraversal(VkViewport viewport) {
         this.uploadUniform(viewport);
         var cmd = VkContext.get().stream.cmd();
@@ -178,9 +184,6 @@ public class VkHierarchicalOcclusionTraverser {
         if (RenderStatistics.enabled) {
             this.statisticsBuffer.zero();
         }
-
-        //Clear the render output counter
-        viewport.getRenderList().zeroRange(0, 4);
 
         this.traversal
                 .texture(0, viewport.hiz.getHizView(), VkSamplers.nearestMipNearestClamp())
@@ -246,8 +249,8 @@ public class VkHierarchicalOcclusionTraverser {
     }
 
     private void downloadResetRequestQueue() {
+        //The counter is cleared at the start of the next traversal (recordCounterClears)
         DownloadStream.INSTANCE.download(this.requestBuffer, this::forwardDownloadResult);
-        this.requestBuffer.zeroRange(0, 4);
     }
 
     private void forwardDownloadResult(long ptr, long size) {

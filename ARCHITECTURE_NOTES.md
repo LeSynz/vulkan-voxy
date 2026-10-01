@@ -2,9 +2,9 @@
 
 Target: Minecraft 26.3 (Fabric), Sodium mc26.3-0.9.2, Iris 1.11.6+26.3. Voxy 0.2.20-beta.
 
-This file lists every OpenGL usage in Voxy (by file) and the planned Vulkan equivalent, plus
-the facts about Minecraft's own Vulkan backend that the plan depends on. Nothing here has been
-run on a GPU; everything Vulkan-side is "needs visual check".
+HISTORICAL (written before the OpenGL backend was removed, see PORTING_PROGRESS.md for the current state): this file lists every OpenGL usage in Voxy (by file) and the planned Vulkan equivalent, plus
+the facts about Minecraft's own Vulkan backend that the plan depends on. Nothing here had been
+run on a GPU when this was written; the port has since been run on a real GPU, see PORTING_PROGRESS.md.
 
 ---------------------------------------------------------------------------------------------------
 

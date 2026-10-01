@@ -177,6 +177,12 @@ public class VkRenderPipeline implements IVkTerrainTargets {
             TimingStatistics.main.start();
 
             VkGpuTimer.mark(cmd, "node updates");
+            //All the per frame counter clears in one transfer group (every group is a full pipeline drain)
+            VkBarriers.allToTransfer(cmd);
+            this.traversal.recordCounterClears(cmd, viewport);
+            this.sectionRenderer.recordCounterClears(cmd);
+            VkBarriers.transferToAll(cmd);
+
             TimingStatistics.F.start();
             this.traversal.doTraversal(viewport);
             TimingStatistics.F.stop();
@@ -195,6 +201,11 @@ public class VkRenderPipeline implements IVkTerrainTargets {
         var occlusionDebug = VoxyClient.getOcclusionDebugState();
         if (occlusionDebug==0) {
             this.innerPrimaryWork(cmd, viewport);
+        } else if (occlusionDebug<=1) {
+            //Traversal is skipped but the draw calls are still generated, which needs its counters cleared
+            VkBarriers.allToTransfer(cmd);
+            this.sectionRenderer.recordCounterClears(cmd);
+            VkBarriers.transferToAll(cmd);
         }
         VkGpuTimer.mark(cmd, "traversal");
 

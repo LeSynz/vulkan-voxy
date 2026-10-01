@@ -97,6 +97,12 @@ public class VkGpuBuffer extends TrackedObject implements IGpuBuffer, Destroyabl
         return this;
     }
 
+    //Records a fill without any barriers, for batching several clears between one allToTransfer/transferToAll pair
+    public void recordFill(org.lwjgl.vulkan.VkCommandBuffer cmd, long offset, long size, int data) {
+        this.assertNotFreed();
+        vkCmdFillBuffer(cmd, this.buffer, offset, size, data);
+    }
+
     public VkGpuBuffer name(String name) {
         VkContext.get().setObjectName(VK_OBJECT_TYPE_BUFFER, this.buffer, name);
         return this;

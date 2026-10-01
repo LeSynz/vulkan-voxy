@@ -16,7 +16,7 @@ import static org.lwjgl.vulkan.VK10.*;
 //GPU timestamps around the sections of voxy's frame (-Dvoxy.gpuTimers=true, or the benchmark). Disabled it costs nothing.
 // Results are read back a few frames later without waiting, so it never stalls.
 public final class VkGpuTimer {
-    public static final boolean ENABLED = Boolean.getBoolean("voxy.gpuTimers") || Boolean.getBoolean("voxy.bench");
+    public static final boolean ENABLED = (Boolean.getBoolean("voxy.gpuTimers") || Boolean.getBoolean("voxy.bench")) && !Boolean.getBoolean("voxy.noGpuTimers");
     private static final int MAX_MARKS = 24;
     private static final int FRAMES = 4;
 
