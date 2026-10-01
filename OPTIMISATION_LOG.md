@@ -106,6 +106,15 @@ global-palette sized ones, biome borders, light modes none/sky/sky+block/filled-
 voxel arrays and non-air counts vs. the original convert + original lambdas; plus every
 per-voxel `supply` value vs. the original lambdas).
 
+### 7. World ingest — row-wise `WorldUpdater.insertSectionLvlIntoWorld` (level 0) — REVERTED
+Process each 16-voxel x row with `Arrays.mismatch` + `System.arraycopy` (vectorised intrinsics)
+instead of the hand-unrolled 4-voxel loop. Identity test (`WorldUpdaterIdentityTest`, 3000
+inserts over levels 0–4, incl. no-change inserts) passed, but `WorldInsertJMH` (same data as the
+existing `WorldUpdaterJMH`) showed no gain: baseline 15.773 ± 0.928 (current) / 15.329 ± 1.006
+(reference); after 16.139 ± 1.797 vs. reference 14.819 ± 1.298 µs/op. The insert is bound by
+memory traffic into the 256 KB world section, not by the loop. Reverted; the benchmark and the
+identity test stay for future attempts.
+
 ## GPU-side candidates (not measured — profile on a real GPU)
 - Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
   every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).
