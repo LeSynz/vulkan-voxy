@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.mixin.minecraft.vulkan;
 
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
-import me.cortex.voxy.client.core.vulkan.VkVoxyRenderSystem;
+import me.cortex.voxy.client.core.VoxyRenderSystem;
 import net.minecraft.client.renderer.LevelRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -26,7 +26,7 @@ public class MixinLevelRendererVulkan {
 
     @Unique
     private static void voxy$renderVulkanFrame() {
-        if (IVoxyRenderSystemHolder.getNullable() instanceof VkVoxyRenderSystem vk) {
+        if (IVoxyRenderSystemHolder.getNullable() instanceof VoxyRenderSystem vk) {
             vk.renderFrame();
         }
     }

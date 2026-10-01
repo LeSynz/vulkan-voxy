@@ -4,8 +4,8 @@ import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
-import me.cortex.voxy.client.core.NormalRenderPipeline;
-import me.cortex.voxy.client.core.SSAO;
+import me.cortex.voxy.client.core.FogMode;
+import me.cortex.voxy.client.core.SSAOMode;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.cpu.CpuLayout;
 import me.cortex.voxy.commonImpl.VoxyCommon;
@@ -37,28 +37,28 @@ public class VoxyConfig {
     public boolean dontUseSodiumBuilderThreads = false;
     public String ssaoMode;
 
-    public SSAO.SSAOMode getSSAOMode() {
-        var DEFAULT = SSAO.SSAOMode.AUTO;
+    public SSAOMode getSSAOMode() {
+        var DEFAULT = SSAOMode.AUTO;
         if (this.ssaoMode == null) return DEFAULT;
         try {
-            return SSAO.SSAOMode.valueOf(this.ssaoMode.toUpperCase(Locale.ROOT));
+            return SSAOMode.valueOf(this.ssaoMode.toUpperCase(Locale.ROOT));
         } catch (Exception e) { return DEFAULT; }
     }
 
-    public void setSSAOMode(SSAO.SSAOMode mode) {
+    public void setSSAOMode(SSAOMode mode) {
         this.ssaoMode = mode.name().toLowerCase(Locale.ROOT);
     }
 
 
-    public NormalRenderPipeline.FogMode getFogMode() {
-        var DEFAULT = NormalRenderPipeline.FogMode.FOG_AND_FADE;
+    public FogMode getFogMode() {
+        var DEFAULT = FogMode.FOG_AND_FADE;
         if (this.fogMode == null) return DEFAULT;
         try {
-            return NormalRenderPipeline.FogMode.valueOf(this.fogMode.toUpperCase(Locale.ROOT));
+            return FogMode.valueOf(this.fogMode.toUpperCase(Locale.ROOT));
         } catch (Exception e) { return DEFAULT;}
     }
 
-    public void setFogMode(NormalRenderPipeline.FogMode mode) {
+    public void setFogMode(FogMode mode) {
         this.fogMode = mode.name().toLowerCase(Locale.ROOT);
     }
 

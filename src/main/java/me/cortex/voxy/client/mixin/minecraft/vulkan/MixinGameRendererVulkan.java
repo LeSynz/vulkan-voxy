@@ -2,7 +2,7 @@ package me.cortex.voxy.client.mixin.minecraft.vulkan;
 
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
-import me.cortex.voxy.client.core.vulkan.VkVoxyRenderSystem;
+import me.cortex.voxy.client.core.VoxyRenderSystem;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.state.GameRenderState;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,7 +21,7 @@ public abstract class MixinGameRendererVulkan {
     private boolean voxy$forceImprovedTransparency(boolean original) {
         if (!original
                 && !this.gameRenderState.levelRenderState.renderWireframeTerrain//vanilla disables it for wireframe as well
-                && IVoxyRenderSystemHolder.getNullable() instanceof VkVoxyRenderSystem) {
+                && IVoxyRenderSystemHolder.getNullable() instanceof VoxyRenderSystem) {
             return true;
         }
         return original;

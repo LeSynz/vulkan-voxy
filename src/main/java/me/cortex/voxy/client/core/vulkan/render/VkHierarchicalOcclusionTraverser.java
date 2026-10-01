@@ -4,10 +4,9 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import me.cortex.voxy.client.RenderStatistics;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.building.RenderGenerationService;
 import me.cortex.voxy.client.core.rendering.hierachical.AsyncNodeManager;
-import me.cortex.voxy.client.core.rendering.hierachical.HierarchicalOcclusionTraverser;
 import me.cortex.voxy.client.core.rendering.hierachical.NodeCleaner;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
@@ -27,8 +26,9 @@ import static org.lwjgl.vulkan.VK10.vkCmdUpdateBuffer;
 
 //Vulkan port of HierarchicalOcclusionTraverser (same traversal compute shader, MAX_ITERATIONS indirect dispatches)
 public class VkHierarchicalOcclusionTraverser {
-    public static final int MAX_REQUEST_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_REQUEST_QUEUE_SIZE;
-    public static final int MAX_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_QUEUE_SIZE;
+    public static final boolean HIERARCHICAL_SHADER_DEBUG = System.getProperty("voxy.hierarchicalShaderDebug", "false").equals("true");
+    public static final int MAX_REQUEST_QUEUE_SIZE = 50;
+    public static final int MAX_QUEUE_SIZE = 200_000;
 
     private static final int MAX_ITERATIONS = WorldEngine.MAX_LOD_LAYER+1;
     private static final int LOCAL_WORK_SIZE_BITS = 5;
@@ -67,7 +67,7 @@ public class VkHierarchicalOcclusionTraverser {
     public static VkShaderBuilder traversalShader(RenderProperties properties, boolean statistics) {
         return VkShaderBuilder.make()
                 .apply(properties::apply)
-                .defineIf("DEBUG", HierarchicalOcclusionTraverser.HIERARCHICAL_SHADER_DEBUG)
+                .defineIf("DEBUG", HIERARCHICAL_SHADER_DEBUG)
                 .define("MAX_ITERATIONS", MAX_ITERATIONS)
                 .define("LOCAL_SIZE_BITS", LOCAL_WORK_SIZE_BITS)
                 .define("MAX_REQUEST_QUEUE_SIZE", MAX_REQUEST_QUEUE_SIZE)

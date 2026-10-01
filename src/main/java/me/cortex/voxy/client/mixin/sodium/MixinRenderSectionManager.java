@@ -4,7 +4,6 @@ import me.cortex.voxy.client.ICheekyClientChunkCache;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
-import me.cortex.voxy.client.core.util.IrisUtil;
 import me.cortex.voxy.common.world.service.VoxelIngestService;
 import net.caffeinemc.mods.sodium.client.render.chunk.RenderSection;
 import net.caffeinemc.mods.sodium.client.render.chunk.RenderSectionManager;
@@ -43,7 +42,7 @@ public class MixinRenderSectionManager {
     @Inject(method = "renderOutOfGraph", at = @At("HEAD"))
     private void voxy$injectReset1(Viewport viewport, FogParameters fogParameters, CallbackInfo ci) {
         var vrs = IVoxyRenderSystemHolder.getNullable();
-        if (vrs != null && !IrisUtil.irisShadowActive() && vrs.visbleSectionStream != null) {
+        if (vrs != null && vrs.visbleSectionStream != null) {
             vrs.visbleSectionStream.reset();
         }
     }
@@ -51,7 +50,7 @@ public class MixinRenderSectionManager {
     @Inject(method = "readRenderListFromTree", at = @At(value = "INVOKE", target = "Lnet/caffeinemc/mods/sodium/client/render/chunk/lists/VisibleChunkCollector;<init>(Lnet/caffeinemc/mods/sodium/client/render/chunk/region/RenderRegionManager;I)V"))
     private void voxy$injectReset2(Viewport viewport, FogParameters fogParameters, CallbackInfo ci) {
         var vrs = IVoxyRenderSystemHolder.getNullable();
-        if (vrs != null && !IrisUtil.irisShadowActive() && vrs.visbleSectionStream != null) {
+        if (vrs != null && vrs.visbleSectionStream != null) {
             vrs.visbleSectionStream.reset();
         }
     }

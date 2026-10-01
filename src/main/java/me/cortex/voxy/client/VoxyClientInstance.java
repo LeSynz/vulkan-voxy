@@ -2,7 +2,6 @@ package me.cortex.voxy.client;
 
 import me.cortex.voxy.client.compat.FlashbackCompat;
 import me.cortex.voxy.client.config.VoxyConfig;
-import me.cortex.voxy.client.core.RenderResourceReuse;
 import me.cortex.voxy.client.mixin.sodium.AccessorSodiumWorldRenderer;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.StorageConfigUtil;
@@ -85,8 +84,6 @@ public class VoxyClientInstance extends VoxyInstance {
     @Override
     public void shutdown() {
         super.shutdown();
-        //Free the render resources cache since the entire instance is freed
-        RenderResourceReuse.clearResources();
     }
 
     private static class Config {

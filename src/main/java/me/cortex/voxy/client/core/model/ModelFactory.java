@@ -6,7 +6,6 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
-import me.cortex.voxy.client.core.gl.GlTexture;
 import me.cortex.voxy.client.core.model.bakery.SoftwareModelTextureBakery;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.common.Logger;
@@ -44,8 +43,6 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static me.cortex.voxy.client.core.model.ModelStore.MODEL_SIZE;
-import static org.lwjgl.opengl.ARBDirectStateAccess.nglTextureSubImage2D;
-import static org.lwjgl.opengl.GL11.*;
 
 //Manages the storage and updating of model states, textures and colours
 

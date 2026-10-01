@@ -1,10 +1,9 @@
 package me.cortex.voxy.client.core.rendering.util;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.client.core.backend.IGpuFence;
-import me.cortex.voxy.client.core.gl.Capabilities;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
 import me.cortex.voxy.client.core.vulkan.VkUploadStream;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.AllocationArena;
@@ -167,7 +166,7 @@ public abstract class UploadStream {
 
     //A upload instance instead of passing one around by reference
     // MUST ONLY BE USED ON THE RENDER THREAD
-    public static final UploadStream INSTANCE = GpuBackend.isVulkan()?new VkUploadStream(1<<26):new GlUploadStream(1<<26);//64 mb upload buffer
+    public static final UploadStream INSTANCE = new VkUploadStream(1<<26);//64 mb upload buffer
 
     public static long alignUp(long val, long alignment) {
         return ((val+alignment-1)/alignment)*alignment;

@@ -2,7 +2,7 @@ package me.cortex.voxy.client.core.vulkan.shader;
 
 import com.mojang.renderpearl.backend.vulkan.Destroyable;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.VkContext;
 import me.cortex.voxy.client.core.vulkan.VkGpuBuffer;
 import me.cortex.voxy.common.util.TrackedObject;
@@ -63,16 +63,16 @@ public abstract class VkPipeline extends TrackedObject implements Destroyable {
     }
 
     // ---- storage buffers (GL_SHADER_STORAGE_BUFFER bindings)
-    public VkPipeline ssbo(int glBinding, VkGpuBuffer buffer) {
-        return this.ssbo(glBinding, buffer, 0, VK_WHOLE_SIZE);
+    public VkPipeline ssbo(int binding, VkGpuBuffer buffer) {
+        return this.ssbo(binding, buffer, 0, VK_WHOLE_SIZE);
     }
 
-    public VkPipeline ssbo(int glBinding, VkGpuBuffer buffer, long offset, long range) {
-        return this.put(VkShaderCompiler.SSBO_BINDING_BASE + glBinding, new Descriptor(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer.buffer, offset, range, 0, 0, buffer));
+    public VkPipeline ssbo(int binding, VkGpuBuffer buffer, long offset, long range) {
+        return this.put(VkShaderCompiler.SSBO_BINDING_BASE + binding, new Descriptor(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer.buffer, offset, range, 0, 0, buffer));
     }
 
-    public VkPipeline ssboRaw(int glBinding, long buffer, long offset, long range) {
-        return this.put(VkShaderCompiler.SSBO_BINDING_BASE + glBinding, new Descriptor(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer, offset, range, 0, 0, null));
+    public VkPipeline ssboRaw(int binding, long buffer, long offset, long range) {
+        return this.put(VkShaderCompiler.SSBO_BINDING_BASE + binding, new Descriptor(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer, offset, range, 0, 0, null));
     }
 
     public VkPipeline ssbo(String define, VkGpuBuffer buffer) {
@@ -87,16 +87,16 @@ public abstract class VkPipeline extends TrackedObject implements Destroyable {
     }
 
     // ---- uniform buffers (GL_UNIFORM_BUFFER bindings)
-    public VkPipeline ubo(int glBinding, VkGpuBuffer buffer) {
-        return this.ubo(glBinding, buffer, 0, buffer.size());
+    public VkPipeline ubo(int binding, VkGpuBuffer buffer) {
+        return this.ubo(binding, buffer, 0, buffer.size());
     }
 
-    public VkPipeline ubo(int glBinding, VkGpuBuffer buffer, long offset, long range) {
-        return this.put(VkShaderCompiler.UBO_BINDING_BASE + glBinding, new Descriptor(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer.buffer, offset, range, 0, 0, buffer));
+    public VkPipeline ubo(int binding, VkGpuBuffer buffer, long offset, long range) {
+        return this.put(VkShaderCompiler.UBO_BINDING_BASE + binding, new Descriptor(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer.buffer, offset, range, 0, 0, buffer));
     }
 
-    public VkPipeline uboRaw(int glBinding, long buffer, long offset, long range) {
-        return this.put(VkShaderCompiler.UBO_BINDING_BASE + glBinding, new Descriptor(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer, offset, range, 0, 0, null));
+    public VkPipeline uboRaw(int binding, long buffer, long offset, long range) {
+        return this.put(VkShaderCompiler.UBO_BINDING_BASE + binding, new Descriptor(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer, offset, range, 0, 0, null));
     }
 
     public VkPipeline ubo(String define, VkGpuBuffer buffer) {
@@ -104,8 +104,8 @@ public abstract class VkPipeline extends TrackedObject implements Destroyable {
     }
 
     // ---- combined image samplers (texture units)
-    public VkPipeline texture(int glUnit, long view, long sampler) {
-        return this.put(VkShaderCompiler.TEXTURE_BINDING_BASE + glUnit, new Descriptor(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, 0, 0, view, sampler, null));
+    public VkPipeline texture(int unit, long view, long sampler) {
+        return this.put(VkShaderCompiler.TEXTURE_BINDING_BASE + unit, new Descriptor(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, 0, 0, view, sampler, null));
     }
 
     public VkPipeline texture(String define, long view, long sampler) {
@@ -113,8 +113,8 @@ public abstract class VkPipeline extends TrackedObject implements Destroyable {
     }
 
     // ---- storage images (glBindImageTexture units)
-    public VkPipeline image(int glUnit, long view) {
-        return this.put(VkShaderCompiler.IMAGE_BINDING_BASE + glUnit, new Descriptor(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 0, 0, 0, view, 0, null));
+    public VkPipeline image(int unit, long view) {
+        return this.put(VkShaderCompiler.IMAGE_BINDING_BASE + unit, new Descriptor(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 0, 0, 0, view, 0, null));
     }
 
     public void bind(VkCommandBuffer cmd) {

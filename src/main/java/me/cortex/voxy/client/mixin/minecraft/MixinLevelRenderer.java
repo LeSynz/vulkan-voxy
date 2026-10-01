@@ -4,7 +4,6 @@ import me.cortex.voxy.client.VoxyClientInstance;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
-import me.cortex.voxy.client.core.util.IrisUtil;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.commonImpl.VoxyCommon;
@@ -91,15 +90,7 @@ public abstract class MixinLevelRenderer implements IVoxyRenderSystemHolder {
     private void voxy$createEngineDirect(WorldEngine world) {
         var instance = world.instanceIn;
         if (instance == null) throw new IllegalStateException();//in theory this could be null if is like in a test suit or something
-        try {
-            this.renderer = VoxyRenderSystem.create(world, instance.getServiceManager());
-        } catch (RuntimeException e) {
-            if (IrisUtil.irisShaderPackEnabled()) {
-                IrisUtil.disableIrisShaders();
-            } else {
-                throw e;
-            }
-        }
+        this.renderer = new VoxyRenderSystem(world, instance.getServiceManager());
         instance.updateDedicatedThreads();
     }
 }

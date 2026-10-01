@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.vulkan.render;
 
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.bounding.IBoundStore;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.client.core.vulkan.VkBarriers;

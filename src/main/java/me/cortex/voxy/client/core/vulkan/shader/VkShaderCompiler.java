@@ -1,6 +1,6 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;

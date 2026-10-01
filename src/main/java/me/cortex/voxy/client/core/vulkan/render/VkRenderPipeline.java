@@ -4,10 +4,10 @@ import me.cortex.voxy.client.RenderStatistics;
 import me.cortex.voxy.client.TimingStatistics;
 import me.cortex.voxy.client.VoxyClient;
 import me.cortex.voxy.client.config.VoxyConfig;
-import me.cortex.voxy.client.core.NormalRenderPipeline;
+import me.cortex.voxy.client.core.FogMode;
 import me.cortex.voxy.client.core.RenderProperties;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.hierachical.AsyncNodeManager;
 import me.cortex.voxy.client.core.rendering.hierachical.NodeCleaner;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
@@ -42,7 +42,7 @@ public class VkRenderPipeline implements IVkTerrainTargets {
     private VkImage2D colourTex;
     private VkImage2D colourSSAOTex;
 
-    private final NormalRenderPipeline.FogMode fogMode;
+    private final FogMode fogMode;
     private final VkGraphicsPipeline depthStencilSetup;
     private final VkShaderBuilder finalBlitBuilder;
     private final Map<Long, VkGraphicsPipeline> finalBlits = new HashMap<>();//keyed by the vanilla target formats
@@ -56,7 +56,7 @@ public class VkRenderPipeline implements IVkTerrainTargets {
                 .add(ShaderType.FRAGMENT, "voxy:post/setup_stencil_depth.frag");
     }
 
-    public static VkShaderBuilder finalBlitShader(RenderProperties properties, NormalRenderPipeline.FogMode fogMode) {
+    public static VkShaderBuilder finalBlitShader(RenderProperties properties, FogMode fogMode) {
         return VkShaderBuilder.make()
                 .apply(properties::apply)
                 .add(ShaderType.VERTEX, "voxy:post/fullscreen.vert")
@@ -177,29 +177,38 @@ public class VkRenderPipeline implements IVkTerrainTargets {
 
     public void runPipeline(VkViewport viewport, VkFrameTarget target) {
         var cmd = VkContext.get().stream.cmd();
+        VkGpuTimer.beginFrame(cmd);
         this.setup(cmd, viewport, target);
+        VkGpuTimer.mark(cmd, "setup");
 
         var rs = this.sectionRenderer;
         rs.renderOpaque(viewport);
+        VkGpuTimer.mark(cmd, "opaque");
         var occlusionDebug = VoxyClient.getOcclusionDebugState();
         if (occlusionDebug==0) {
             this.innerPrimaryWork(cmd, viewport);
         }
+        VkGpuTimer.mark(cmd, "hiz+traversal");
 
         if (occlusionDebug<=1) {
             TimingStatistics.G.start();
             rs.buildDrawCalls(viewport);
             TimingStatistics.G.stop();
         }
+        VkGpuTimer.mark(cmd, "drawcalls");
 
         rs.renderTemporal(viewport);
+        VkGpuTimer.mark(cmd, "temporal");
 
         //SSAO, then translucents render into the SSAO output
         this.ssao.computeSSAO(cmd, viewport, this.colourSSAOTex, this.colourTex, this.fb.getImage(), target.depthView());
+        VkGpuTimer.mark(cmd, "ssao");
 
         rs.renderTranslucent(viewport);
+        VkGpuTimer.mark(cmd, "translucent");
 
         this.finish(cmd, viewport, target);
+        VkGpuTimer.mark(cmd, "composite");
     }
 
     private VkGraphicsPipeline finalBlit(VkFrameTarget target) {

@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.vulkan.shader;
 
-import me.cortex.voxy.client.core.gl.Capabilities;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.VkContext;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkCommandBuffer;
@@ -26,7 +26,10 @@ public class VkComputePipeline extends VkPipeline {
                     .module(module)
                     .pName(stack.UTF8("main"));
             var p = stack.mallocLong(1);
-            VkContext.check(vkCreateComputePipelines(VkContext.get().vkDevice, VK_NULL_HANDLE, ci, null, p), "vkCreateComputePipelines");
+            long start = System.nanoTime();
+            VkContext.check(vkCreateComputePipelines(VkContext.get().vkDevice, VkShaderCache.pipelineCache(), ci, null, p), "vkCreateComputePipelines");
+            VkShaderCache.pipelineCreateNs += System.nanoTime() - start;
+            VkShaderCache.pipelinesCreated++;
             this.pipeline = p.get(0);
         } finally {
             vkDestroyShaderModule(VkContext.get().vkDevice, module, null);

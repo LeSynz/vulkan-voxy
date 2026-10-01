@@ -6,7 +6,6 @@ import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.rendering.ISectionWatcher;
 import me.cortex.voxy.client.core.rendering.building.BuiltSection;
 import me.cortex.voxy.client.core.rendering.section.geometry.IGeometryManager;
@@ -1354,17 +1353,6 @@ public class NodeManager {
     }
 
     //==================================================================================================================
-    public boolean writeChanges(GlBuffer nodeBuffer) {
-        //TODO: use like compute based copy system or something
-        // since microcopies are bad
-        if (this.nodeUpdates.isEmpty()) {
-            return false;
-        }
-        this.nodeUpdates.forEach((int i) -> this.nodeData.writeNode(UploadStream.INSTANCE.upload(nodeBuffer, i*16L, 16L), i));
-        this.nodeUpdates.clear();
-        return true;
-    }
-
     //Used for raw access to the update map, internal (used in async)
     IntOpenHashSet getNodeUpdates() {
         return this.nodeUpdates;

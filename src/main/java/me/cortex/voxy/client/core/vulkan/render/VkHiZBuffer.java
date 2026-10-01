@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.vulkan.render;
 
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.*;
 import me.cortex.voxy.client.core.vulkan.shader.VkGraphicsPipeline;
 import me.cortex.voxy.client.core.vulkan.shader.VkGraphicsState;

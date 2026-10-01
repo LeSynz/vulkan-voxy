@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.rendering.hierachical;
 
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.section.geometry.ISectionGeometryData;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.client.core.vulkan.VkBarriers;

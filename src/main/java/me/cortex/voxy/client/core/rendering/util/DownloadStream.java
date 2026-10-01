@@ -1,7 +1,6 @@
 package me.cortex.voxy.client.core.rendering.util;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.client.core.backend.IGpuFence;
 import me.cortex.voxy.client.core.vulkan.VkDownloadStream;
@@ -208,5 +207,5 @@ public abstract class DownloadStream {
 
 
     // Global download stream
-    public static final DownloadStream INSTANCE = GpuBackend.isVulkan()?new VkDownloadStream(1<<25):new GlDownloadStream(1<<25);//32 mb download buffer
+    public static final DownloadStream INSTANCE = new VkDownloadStream(1<<25);//32 mb download buffer
 }

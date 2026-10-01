@@ -2,7 +2,6 @@ package me.cortex.voxy.client.mixin.sodium;
 
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
-import me.cortex.voxy.client.core.util.IrisUtil;
 import net.caffeinemc.mods.sodium.client.render.chunk.LocalSectionIndex;
 import net.caffeinemc.mods.sodium.client.render.chunk.RenderSection;
 import net.caffeinemc.mods.sodium.client.render.chunk.RenderSectionFlags;
@@ -30,7 +29,7 @@ public class MixinFallbackVisibleChunkCollector {
     private RenderSection voxy$injectVisibleSectionGather(SectionStorage instance, int x, int y, int z) {
         var section = instance.getCurrent(x,y,z);
         VoxyRenderSystem vrs;
-        if (!IrisUtil.irisShadowActive() && (vrs = IVoxyRenderSystemHolder.getNullable()) != null && voxy$shouldUseForChunkBound(section, LocalSectionIndex.pack(x, y, z))) {
+        if ((vrs = IVoxyRenderSystemHolder.getNullable()) != null && voxy$shouldUseForChunkBound(section, LocalSectionIndex.pack(x, y, z))) {
             if (vrs.visbleSectionStream != null)
                 vrs.visbleSectionStream.put(SectionPos.asLong(x,y,z));
         }

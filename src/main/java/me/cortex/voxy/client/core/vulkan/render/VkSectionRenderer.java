@@ -2,8 +2,8 @@ package me.cortex.voxy.client.core.vulkan.render;
 
 import me.cortex.voxy.client.RenderStatistics;
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.Capabilities;
-import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.Capabilities;
+import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.model.VkModelStore;
 import me.cortex.voxy.client.core.rendering.section.geometry.VkSectionGeometryData;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
