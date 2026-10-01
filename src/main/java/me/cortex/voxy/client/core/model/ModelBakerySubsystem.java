@@ -26,7 +26,9 @@ public class ModelBakerySubsystem {
         this.factory = new ModelFactory(mapper, this.storage);
         this.processingThread = new Thread(()->{//TODO replace this with something good/integrate it into the async processor so that we just have less threads overall
             while (this.isRunning) {
-                while (this.factory.processAllThings());
+                //Must also stop on shutdown: on vulkan in flight bakes only finish when the render thread ticks the atlas readback,
+                // which no longer happens once shutdown() is joining this thread
+                while (this.isRunning && this.factory.processAllThings());
                 LockSupport.park();
             }
         }, "Model factory processor");
