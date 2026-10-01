@@ -442,3 +442,19 @@ if (!isInGHA) {
         }
     }
 }*/
+
+//Tests (cpu only, no gpu in CI): shader -> SPIR-V compilation/validation and byte-identical checks for optimisations
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = "2G"
+    testLogging {
+        events "failed"
+        exceptionFormat "full"
+        showStandardStreams = true
+    }
+}
