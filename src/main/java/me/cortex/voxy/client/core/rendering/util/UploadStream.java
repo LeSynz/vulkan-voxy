@@ -1,10 +1,11 @@
 package me.cortex.voxy.client.core.rendering.util;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import me.cortex.voxy.client.core.backend.GpuBackend;
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
+import me.cortex.voxy.client.core.backend.IGpuFence;
 import me.cortex.voxy.client.core.gl.Capabilities;
-import me.cortex.voxy.client.core.gl.GlBuffer;
-import me.cortex.voxy.client.core.gl.GlFence;
-import me.cortex.voxy.client.core.gl.GlPersistentMappedBuffer;
+import me.cortex.voxy.client.core.vulkan.VkUploadStream;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.AllocationArena;
 import me.cortex.voxy.common.util.MemoryBuffer;
@@ -13,52 +14,54 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import static me.cortex.voxy.common.util.AllocationArena.SIZE_LIMIT;
-import static org.lwjgl.opengl.ARBDirectStateAccess.glCopyNamedBufferSubData;
-import static org.lwjgl.opengl.ARBMapBufferRange.*;
-import static org.lwjgl.opengl.GL11.glFinish;
-import static org.lwjgl.opengl.GL42.glMemoryBarrier;
-import static org.lwjgl.opengl.GL42C.GL_BUFFER_UPDATE_BARRIER_BIT;
-import static org.lwjgl.opengl.GL44.GL_CLIENT_STORAGE_BIT;
-import static org.lwjgl.opengl.GL44.GL_MAP_COHERENT_BIT;
-import static org.lwjgl.opengl.GL45C.glFlushMappedNamedBufferRange;
 
-public class UploadStream {
+//Backend independent part of the upload stream (allocation and frame retirement), the backend specific gpu
+// operations are implemented by GlUploadStream and VkUploadStream
+public abstract class UploadStream {
     public static final int BASE_ALLOCATION_ALIGNEMENT = Math.max(Capabilities.INSTANCE.ssboBindingAlignment, 16);
 
     private final AllocationArena allocationArena = new AllocationArena();
-    private final GlPersistentMappedBuffer uploadBuffer;
+    private final long size;
 
     private final Deque<UploadFrame> frames = new ArrayDeque<>();
     private final LongArrayList thisFrameAllocations = new LongArrayList();
-    private final Deque<UploadData> uploadList = new ArrayDeque<>();
+    protected final Deque<UploadData> uploadList = new ArrayDeque<>();
 
-    private static final boolean USE_COHERENT = false;
-
-    public UploadStream(long size) {
-        this.uploadBuffer = new GlPersistentMappedBuffer(size,GL_CLIENT_STORAGE_BIT|GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT|(USE_COHERENT?GL_MAP_COHERENT_BIT:GL_MAP_FLUSH_EXPLICIT_BIT)).name("UploadStream");
+    protected UploadStream(long size) {
+        this.size = size;
         this.allocationArena.setLimit(size);
     }
 
+    //Host address of the start of the mapped upload buffer
+    public abstract long getBaseAddress();
+    //Make cpu writes in the range visible to the gpu
+    protected abstract void flushRange(long offset, long size);
+    //Execute (or record) every copy in the upload list, including the required barriers
+    protected abstract void executeCopies(Deque<UploadData> uploads);
+    protected abstract IGpuFence createFence();
+    //Block until (as much as possible of) the gpu work using the upload buffer has completed
+    protected abstract void finish();
+
     private long caddr = -1;
     private long offset = 0;
-    public void upload(GlBuffer buffer, long destOffset, MemoryBuffer data) {//Note: does not free data, nor does it commit
+    public void upload(IGpuBuffer buffer, long destOffset, MemoryBuffer data) {//Note: does not free data, nor does it commit
         data.cpyTo(this.upload(buffer, destOffset, data.size));
     }
 
-    public long uploadTo(GlBuffer buffer) {
+    public long uploadTo(IGpuBuffer buffer) {
         return this.upload(buffer, 0, buffer.size());
     }
 
-    public long upload(GlBuffer buffer, long destOffset, long size) {
+    public long upload(IGpuBuffer buffer, long destOffset, long size) {
         long addr = this.rawUploadAddress((int) size);
 
         this.uploadList.add(new UploadData(buffer, addr, destOffset, size));
 
-        return this.uploadBuffer.addr() + addr;
+        return this.getBaseAddress() + addr;
     }
 
     public long rawUpload(int size) {
-        return this.uploadBuffer.addr() + this.rawUploadAddress(size);
+        return this.getBaseAddress() + this.rawUploadAddress(size);
     }
 
     public long rawUploadAddress(int size) {
@@ -71,14 +74,14 @@ public class UploadStream {
         size = alignUp(size, BASE_ALLOCATION_ALIGNEMENT);
         //size = (size+15)&~15;//Alignment to 16 bytes
 
-        if (size > this.uploadBuffer.size()) {
+        if (size > this.size) {
             throw new IllegalArgumentException();
         }
 
         long addr;
         if (this.caddr == -1 || !this.allocationArena.expand(this.caddr, (int) size)) {
-            if ((!USE_COHERENT)&&this.caddr!=-1) {
-                glFlushMappedNamedBufferRange(this.uploadBuffer.id, this.caddr, this.offset);
+            if (this.caddr!=-1) {
+                this.flushRange(this.caddr, this.offset);
             }
             this.caddr = this.allocationArena.alloc((int) size);//TODO: replace with allocFromLargest
             if (this.caddr == SIZE_LIMIT) {
@@ -88,7 +91,7 @@ public class UploadStream {
                 Logger.error("Upload stream full, preemptively committing, this could cause bad things to happen");
                 int attempts = 10;
                 while (--attempts != 0 && this.caddr == SIZE_LIMIT) {
-                    glFinish();
+                    this.finish();
                     this.tick(false);
                     this.caddr = this.allocationArena.alloc((int) size);
                 }
@@ -104,7 +107,7 @@ public class UploadStream {
             this.offset += size;
         }
 
-        if (this.caddr + size > this.uploadBuffer.size()) {
+        if (this.caddr + size > this.size) {
             throw new IllegalStateException();
         }
 
@@ -112,23 +115,18 @@ public class UploadStream {
     }
 
     public void commit() {
-        if ((!USE_COHERENT)&&this.caddr != -1) {
+        if (this.caddr != -1) {
             //Flush this allocation
-            glFlushMappedNamedBufferRange(this.uploadBuffer.id, this.caddr, this.offset);
+            this.flushRange(this.caddr, this.offset);
         }
 
         if (this.uploadList.isEmpty()) {
             return;
         }
 
-        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
         //Execute all the copies
-        for (var entry : this.uploadList) {
-            glCopyNamedBufferSubData(this.uploadBuffer.id, entry.target.id, entry.uploadOffset, entry.targetOffset, entry.size);
-        }
+        this.executeCopies(this.uploadList);
         this.uploadList.clear();
-
-        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);//|GL_SHADER_STORAGE_BARRIER_BIT|GL_UNIFORM_BARRIER_BIT //expected + other barriers which may cause issues if not
 
         this.caddr = -1;
         this.offset = 0;
@@ -143,7 +141,7 @@ public class UploadStream {
         }
 
         if (!this.thisFrameAllocations.isEmpty()) {
-            this.frames.add(new UploadFrame(new GlFence(), new LongArrayList(this.thisFrameAllocations)));
+            this.frames.add(new UploadFrame(this.createFence(), new LongArrayList(this.thisFrameAllocations)));
             this.thisFrameAllocations.clear();
         }
 
@@ -160,20 +158,16 @@ public class UploadStream {
         }
     }
 
-    public long getBaseAddress() {
-        return this.uploadBuffer.addr();
+    protected Iterable<IGpuFence> pendingFences() {
+        return this.frames.stream().map(UploadFrame::fence).toList();
     }
 
-    public int getRawBufferId() {
-        return this.uploadBuffer.id;
-    }
-
-    private record UploadFrame(GlFence fence, LongArrayList allocations) {}
-    private record UploadData(GlBuffer target, long uploadOffset, long targetOffset, long size) {}
+    private record UploadFrame(IGpuFence fence, LongArrayList allocations) {}
+    public record UploadData(IGpuBuffer target, long uploadOffset, long targetOffset, long size) {}
 
     //A upload instance instead of passing one around by reference
     // MUST ONLY BE USED ON THE RENDER THREAD
-    public static final UploadStream INSTANCE = new UploadStream(1<<26);//64 mb upload buffer
+    public static final UploadStream INSTANCE = GpuBackend.isVulkan()?new VkUploadStream(1<<26):new GlUploadStream(1<<26);//64 mb upload buffer
 
     public static long alignUp(long val, long alignment) {
         return ((val+alignment-1)/alignment)*alignment;

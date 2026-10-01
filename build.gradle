@@ -424,8 +424,15 @@ dependencies {
 
 jmh {
     zip64 = true
-    includes=["SaveLoadJMH"]
+    //-PjmhIncludes=<regex> selects benchmarks (default: SaveLoadJMH, as before)
+    includes=[(project.findProperty("jmhIncludes") ?: "SaveLoadJMH").toString()]
+    //Benchmarks reuse the deterministic test data generators and reference (pre-optimisation) implementations
+    includeTests = true
     //profilers = ["xperfasm"]
+    //-PjmhProfilers=<a,b> attaches JMH profilers (e.g. "stack", "gc", "jfr")
+    if (project.findProperty("jmhProfilers")) {
+        profilers = project.findProperty("jmhProfilers").toString().split(",").toList()
+    }
 }
 
 /*
@@ -442,3 +449,19 @@ if (!isInGHA) {
         }
     }
 }*/
+
+//Tests (cpu only, no gpu in CI): shader -> SPIR-V compilation/validation and byte-identical checks for optimisations
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = "2G"
+    testLogging {
+        events "failed"
+        exceptionFormat "full"
+        showStandardStreams = true
+    }
+}

@@ -23,6 +23,14 @@ public class Mipper {
 
 
 
+        //Fast path: 8 identical voxels (uniform stone, air, water, ...) mip to themselves. This is exactly what the
+        // general path below returns: non air ties resolve to I111 and averaging 8 equal light values reproduces
+        // the input light, so withLight(I111, light(I111)) == I111
+        if (I000 == I111 && I100 == I111 && I001 == I111 && I101 == I111 &&
+                I010 == I111 && I110 == I111 && I011 == I111) {
+            return I111;
+        }
+
         int max = -1;
 
         //TODO: mip with respect to all the variables, what that means is take whatever has the highest count and return that

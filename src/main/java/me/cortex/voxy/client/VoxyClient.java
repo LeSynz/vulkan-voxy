@@ -1,6 +1,8 @@
 package me.cortex.voxy.client;
 
+import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.gl.Capabilities;
+import me.cortex.voxy.client.core.vulkan.VkContext;
 import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.commonImpl.VoxyCommon;
@@ -49,9 +51,16 @@ public class VoxyClient implements ClientModInitializer {
 
         }
 
+        if (GpuBackend.isVulkan() && !VkContext.get().voxyFeaturesEnabled) {
+            Logger.error("Voxy: minecraft is running on Vulkan but the device does not support the features voxy needs " +
+                    "(drawIndirectCount, fragmentStoresAndAtomics, vertexPipelineStoresAndAtomics, shaderInt64)");
+        }
+
         if (systemSupported) {
 
-            SharedIndexBuffer.INSTANCE.id();
+            if (GpuBackend.isOpenGL()) {
+                SharedIndexBuffer.INSTANCE.id();
+            }
 
             VoxyCommon.setInstanceFactory(VoxyClientInstance::new);
 

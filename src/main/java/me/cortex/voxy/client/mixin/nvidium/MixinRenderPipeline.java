@@ -4,6 +4,7 @@ import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.mojang.renderpearl.backend.opengl.GlTextureView;
 import me.cortex.nvidium.RenderPipeline;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
+import me.cortex.voxy.client.core.GlVoxyRenderSystem;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.TerrainRenderPass;
 import net.caffeinemc.mods.sodium.client.render.viewport.Viewport;
@@ -19,7 +20,7 @@ public class MixinRenderPipeline {
     private void voxy$injectRender(TerrainRenderPass pass, Viewport viewport, FogParameters fogParameters, ChunkRenderMatrices crm, double px, double py, double pz, GpuSampler terrainSampler, CallbackInfo ci) {
         var renderer = IVoxyRenderSystemHolder.getNullable();
         if (renderer != null) {
-            renderer.renderOpaque(renderer.setupViewport(crm.projection(), crm.modelView(), fogParameters, pass.getTarget().width, pass.getTarget().height, px, py, pz),
+            if (renderer instanceof GlVoxyRenderSystem glRenderer) glRenderer.renderOpaque(renderer.setupViewport(crm.projection(), crm.modelView(), fogParameters, pass.getTarget().width, pass.getTarget().height, px, py, pz),
                     ((GlTextureView)pass.getTarget().getDepthTextureView()).glId(), ((GlTextureView)pass.getTarget().getColorTextureView()).glId());
         }
     }

@@ -11,7 +11,7 @@ import static org.lwjgl.opengl.GL11C.*;
 import static org.lwjgl.opengl.GL15C.GL_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15C.glBindBuffer;
 
-public class BasicSectionGeometryData implements IGeometryData {
+public class BasicSectionGeometryData implements ISectionGeometryData {
     public static final int SECTION_METADATA_SIZE = 32;
     private final GlBuffer sectionMetadataBuffer;
     private final GlBuffer geometryBuffer;
@@ -79,6 +79,7 @@ public class BasicSectionGeometryData implements IGeometryData {
     }
 
     private long sparseCommitment = 0;//Tracks the current range of the allocated sparse buffer
+    @Override
     public void ensureAccessable(int maxElementAccess) {
         long size = (Integer.toUnsignedLong(maxElementAccess)*8L+65535L)&~65535L;
         //If we are a sparse buffer, ensure the memory upto the requested size is allocated
@@ -94,10 +95,12 @@ public class BasicSectionGeometryData implements IGeometryData {
         }
     }
 
+    @Override
     public GlBuffer getGeometryBuffer() {
         return this.geometryBuffer;
     }
 
+    @Override
     public GlBuffer getMetadataBuffer() {
         return this.sectionMetadataBuffer;
     }
@@ -107,14 +110,17 @@ public class BasicSectionGeometryData implements IGeometryData {
         return this.currentSectionCount;
     }
 
+    @Override
     public void setSectionCount(int count) {
         this.currentSectionCount = count;
     }
 
+    @Override
     public int getMaxSectionCount() {
         return this.maxSectionCount;
     }
 
+    @Override
     public long getGeometryCapacityBytes() {//In bytes
         return this.geometryBuffer.size();
     }

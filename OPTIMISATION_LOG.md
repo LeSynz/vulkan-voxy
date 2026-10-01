@@ -1,0 +1,207 @@
+# Optimisation log
+
+Phase 2 (CPU side only). GPU-side ideas are listed at the end as candidates to profile on a real
+GPU; none of them has been measured.
+
+## Method
+- Environment: 4 vCPU Intel Xeon @ 2.80GHz (shared cloud VM), 15 GB RAM, Temurin 25.0.4.
+  Shared hardware → expect a few % run-to-run noise; only changes well outside the JMH error
+  bars are kept.
+- Benchmarks: JMH (`src/jmh/java/me/cortex/voxy/jmh/`), run with
+  `./gradlew jmh -PjmhIncludes=<BenchmarkClass>`; 2 forks × 5 measurement iterations unless noted.
+  Where possible each benchmark also runs a verbatim copy of the pre-optimisation code
+  (`src/test/java/me/cortex/voxy/opt/reference/`) in the same JVM for an A/B comparison.
+- Byte-identical tests: JUnit (`src/test/java/me/cortex/voxy/opt/`), run by `./gradlew test`.
+  Each compares the optimised code against the reference copy of the original on deterministic
+  synthetic data (`TestWorlds`), including adversarial patterns. Minecraft's registries are
+  bootstrapped in-process (`McBootstrap`) so real block states/opacities are used.
+- Rule: a change is kept only if it is measurably faster and the identity test passes.
+
+## Summary
+| target | result |
+|---|---|
+| LOD building (mipping) | kept #1 + #2: terrain −20%, noise −17% per section |
+| Storage (serialization) | kept #3: serialize −42% terrain / −19% sparse / −24% dense; #4, #5 reverted |
+| World ingest (conversion) | kept #6: −60% per section; #7 (world insert) reverted |
+| Compression | measured only (#8): every remaining change would alter stored bytes |
+| Meshing | measured + profiled (#9); #10 reverted, no change kept |
+| GPU side | no change made; candidates listed at the end (none could be measured here) |
+
+All kept changes have a byte-identical JUnit test against a verbatim copy of the original code
+(`./gradlew test`). All numbers are from the CPU-only build environment.
+
+## Results
+
+### 1. LOD mipping — `Mipper.mip` uniform fast path — KEPT
+File: `src/main/java/me/cortex/voxy/common/world/other/Mipper.java`.
+If all 8 children are the same value the result is that value (non-air ties resolve to `I111`;
+averaging 8 identical light values reproduces the input light). Returned before any lookups.
+
+Benchmark `MipperJMH` (one `WorldVoxilizedSectionMipper.mipSection`, µs/op, lower is better):
+
+| data | before (current) | before (reference) | after (current) | after (reference, same run) |
+|---|---|---|---|---|
+| terrain | 13.761 ± 0.467 | 14.924 ± 1.102 | 12.183 ± 0.564 | 14.142 ± 0.627 |
+| noise (worst case, nothing uniform) | 24.965 ± 1.111 | 25.804 ± 1.977 | 24.518 ± 1.174 | 24.873 ± 1.512 |
+
+Terrain −14% vs. the reference in the same run; noise unchanged (within error, the extra
+comparisons cost nothing measurable). Identity: `MipperIdentityTest` (600 random sections,
+200 uniform/cell-structured sections, 2M single `mip` calls with 1–3 distinct inputs).
+
+### 2. LOD mipping — flat opacity array in `Mapper` — KEPT
+File: `src/main/java/me/cortex/voxy/common/world/other/Mapper.java`.
+`getBlockStateOpacity(int)` read `ObjectArrayList<StateEntry>.get(id).opacity` (list bounds
+check + entry dereference) for every non-air child. Entries are append-only and immutable, so a
+volatile `int[]` copy is kept and rebuilt (under the existing block lock) when an id beyond it
+is requested; unknown ids still throw exactly as before.
+
+| data | before (after #1) | after #2 (current) | reference in same run (also uses the cache) |
+|---|---|---|---|
+| terrain | 12.183 ± 0.564 | 10.967 ± 0.426 | 12.655 ± 0.527 |
+| noise | 24.518 ± 1.174 | 20.647 ± 0.689 | 20.227 ± 0.615 |
+
+Noise −16%, terrain −10% vs. the previous run. Combined #1+#2 vs. the original baseline:
+terrain 13.76 → 10.97 µs (−20%), noise 24.97 → 20.65 µs (−17%). Identity: same test as #1.
+
+### 3. Storage — `SaveLoadSystem3.serialize` specialised LUT — KEPT
+File: `src/main/java/me/cortex/voxy/common/world/SaveLoadSystem3.java`.
+The block-value → palette-index map was a fastutil `Long2ShortOpenHashMap` (`putIfAbsent(key,
+size())`, cleared per section). Replaced by a small open-addressing table (long keys, short
+values, linear probing, fastutil's `HashCommon.mix` hash) that hands out indices in first-insertion
+order like before and uses a generation stamp instead of clearing. Output bytes are identical.
+
+Benchmark `SaveLoadSystemJMH` (one 32³ section, µs/op):
+
+| data | before (current) | before (reference) | after (current) | reference in same run |
+|---|---|---|---|---|
+| terrain | 91.789 ± 1.862 | 91.402 ± 7.307 | 52.578 ± 1.887 | 90.889 ± 3.288 |
+| sparse (old SaveLoadJMH data) | 300.484 ± 9.219 | 296.138 ± 8.322 | 243.062 ± 6.394 | 300.357 ± 8.758 |
+| dense, 300 distinct | 213.572 ± 7.504 | 216.212 ± 11.255 | 161.780 ± 4.865 | 212.873 ± 9.685 |
+
+terrain −42%, sparse −19%, dense −24%. Identity: `SaveLoadIdentityTest` (serialized bytes and
+deserialized data/metadata vs. the original, levels 0–4, terrain/sparse/dense incl. 20000
+distinct values to exercise table growth, all-zero sections, wrong-key path).
+
+### 4. Storage — second most-recent-value slot in serialize — REVERTED
+Keep the previous distinct value + mapping as well, so alternating runs (air, block, air) skip
+the table. Identity test passed but it was not faster:
+terrain 50.156 ± 3.099 (vs 52.578), sparse 254.081 ± 13.042 (vs 243.062), dense 175.542 ±
+8.375 (vs 161.780) µs/op. Reverted.
+
+### 5. Storage — fuse the non-air count into the deserialize decode loop — REVERTED
+Single pass instead of decode + count. Identity test passed but it was much slower
+(the separate count loop vectorises): 38.725 ± 2.045 vs. reference 26.856 ± 1.576 µs/op
+(terrain; sparse/dense the same). Reverted. Deserialize stays at the original ~27 µs/op.
+
+### 6. World ingest — single lighting supplier class + bulk light fill — KEPT
+Files: `common/voxelization/DataLayerLightingSupplier.java` (new), `ILightingSupplier.java`
+(`supplyAll` default method), `WorldConversionFactory.java`, `common/world/service/VoxelIngestService.java`.
+`VoxelIngestService` built one of three lambdas per section and `WorldConversionFactory.convert`
+called it once per voxel (4096 megamorphic interface calls, each doing `DataLayer.get`).
+Now one class (`DataLayerLightingSupplier`, same null/empty/clamp semantics) fills all 4096 light
+bytes from the two nibble arrays in one pass, and the conversion loop reads that array. The
+world importer keeps its own lambda through the default `supplyAll` (unchanged behaviour).
+Needs access to `DataLayer.data`/`defaultValue` (access widener).
+
+Benchmark `ConversionJMH` (one 16³ section from a real `PalettedContainer<BlockState>`, mixed
+light modes, µs/op):
+
+| step | current | reference (original code) in same run |
+|---|---|---|
+| baseline: new supplier class only, convert unchanged (per voxel `supply`) | 21.139 ± 1.447 | 44.281 ± 2.063 |
+| bulk fill via int scratch arrays (tried, slower than the line above → replaced) | 25.888 ± 0.964 | 45.034 ± 2.339 |
+| bulk fill combining nibble bytes directly (kept) | 18.159 ± 0.811 | 45.296 ± 3.465 |
+
+Conversion −60% vs. the original (45.3 → 18.2 µs per section). Note that the reference uses
+the original three-lambda supplier, which is what made its call site megamorphic.
+Identity: `ConversionIdentityTest` (400 sections: palettes of 0–300 random extra states incl.
+global-palette sized ones, biome borders, light modes none/sky/sky+block/filled-default layers;
+voxel arrays and non-air counts vs. the original convert + original lambdas; plus every
+per-voxel `supply` value vs. the original lambdas).
+
+### 7. World ingest — row-wise `WorldUpdater.insertSectionLvlIntoWorld` (level 0) — REVERTED
+Process each 16-voxel x row with `Arrays.mismatch` + `System.arraycopy` (vectorised intrinsics)
+instead of the hand-unrolled 4-voxel loop. Identity test (`WorldUpdaterIdentityTest`, 3000
+inserts over levels 0–4, incl. no-change inserts) passed, but `WorldInsertJMH` (same data as the
+existing `WorldUpdaterJMH`) showed no gain: baseline 15.773 ± 0.928 (current) / 15.329 ± 1.006
+(reference); after 16.139 ± 1.797 vs. reference 14.819 ± 1.298 µs/op. The insert is bound by
+memory traffic into the 256 KB world section, not by the loop. Reverted; the benchmark and the
+identity test stay for future attempts.
+
+### 8. Storage — compression (ZSTD / LZ4) — assessed, NO CHANGE
+Files: `common/config/compressors/ZSTDCompressor.java`, `LZ4Compressor.java`.
+Both are thin wrappers over native code (LWJGL zstd with thread-local contexts and scratch
+buffers; Minecraft's lz4-java native instance). Every remaining knob (level, strategy, window,
+dictionary, frame/checksum flags) changes the compressed bytes, which the byte-identical rule does
+not allow, so the compressors were only measured. Benchmark `StoragePipelineJMH` (one 32³
+section, µs/op; "save" = serialize + compress, "load" = decompress + deserialize):
+
+| compressor / data | serialized → compressed size | compress | decompress | save (current) | save (original serializer) | load (current) |
+|---|---|---|---|---|---|---|
+| ZSTD level 1 (default) / terrain | 66001 → 1915 B | 57.3 ± 2.8 | 31.5 ± 0.6 | 124.7 ± 4.2 | 165.6 ± 7.1 | 67.1 ± 5.3 |
+| ZSTD level 1 / dense300 | 67952 → 45921 B | 92.8 ± 3.8 | 47.8 ± 1.8 | 264.4 ± 12.9 | 312.5 ± 13.2 | 84.4 ± 4.1 |
+| LZ4 / terrain | 66001 → 4941 B | 30.3 ± 0.9 | 40.3 ± 1.7 | 94.2 ± 5.4 | 131.6 ± 8.8 | 79.7 ± 4.6 |
+| LZ4 / dense300 | 67952 → 68208 B | 15.7 ± 0.7 | 10.4 ± 0.4 | 194.2 ± 17.5 | 238.3 ± 13.1 | 44.1 ± 5.2 |
+
+With the default ZSTD level 1 the whole section save is −25% (terrain) / −15% (dense) thanks to #3.
+Compression is ~45% of the terrain save time after #3. Changing the default level or compressor
+is a format/size trade-off for the maintainer, not a byte-identical optimisation, so it is
+only noted here.
+
+### 9. Meshing — `RenderDataFactory.generateMesh` — baseline
+Benchmark `MeshingJMH` and test `MeshingIdentityTest` run the mesher headless: `MeshingFixture`
+builds a `ModelFactory` whose model tables (`idMappings`, `metadataCache`, `fluidStateLUT`, the
+only state the mesher reads) hold synthetic metadata in the exact bit layout
+`ModelFactory.processTextureBakeResult` writes (solid, biome-tinted, water, lava, leaves, glass,
+double-sided plants, waterlogged blocks, light emitters + 300 random well-formed models), and a
+`WorldEngine` over an in-memory `SectionStorage` so neighbour faces are fetched through the real
+section tracker. The identity test compares position, child mask, AABB, buffer offsets and every
+geometry byte against a verbatim copy of the original (`ReferenceRenderDataFactory`) for terrain
+at levels 0–2 (~5k quads per section), dense random (~91k quads per section) and sparse random sections.
+
+Baseline (µs/op per 32³ section, 2 forks × 5 iterations):
+
+| data | current (= original) | reference |
+|---|---|---|
+| terrain | 920.0 ± 47.0 | 889.6 ± 36.3 |
+| noise (dense random) | 8545.7 ± 637.5 | 8283.1 ± 410.6 |
+| sparse (90% air random) | 1788.6 ± 79.2 | 1797.1 ± 65.4 |
+
+Profile (JMH `stack` profiler, terrain, share of mesher samples): `ScanMesher2D`
+(`putNext`/`putNext0`/`emitRanged`/`skip`, the greedy quad merger) ≈ 51%, `prepareSectionData`
+(per-voxel model lookup) ≈ 25%, `acquireNeighborData` ≈ 6%, face generation loops the rest.
+Run with `./gradlew jmh -PjmhIncludes=MeshingJMH -PjmhProfilers=stack`.
+
+### 10. Meshing — reuse the previous voxel's lookup in `prepareSectionData` — REVERTED
+The in-code TODO ("cache the results of this, then link it to `block`"): if a voxel's raw value
+equals the previous voxel's, reuse its packed quad data, metadata and mask bits instead of the
+`idMappings`/`metadataCache` lookups and packing. Identity test passed, but it was not measurably
+faster: terrain 845.3 ± 45.8 vs. reference 880.0 ± 46.0 µs/op (−4%, error bars overlap), noise
+8433 ± 337 vs. 8251 ± 411, sparse 1941 ± 103 vs. 1751 ± 70 (+11% slower; the extra compare
+mispredicts on random data). Reverted. The meshing benchmark/test stay; the identity test now also
+covers the "model not baked yet" path (`IdNotYetComputedException` id and neighbour mask must match).
+
+Larger meshing ideas, not attempted because they cannot be shown faster without changing the hot
+loop structure of the hand-tuned merger, or would only pay off in-game (for profiling on a real install):
+- Cache per-section directional face masks across rebuilds (the in-code TODO at the top of
+  `RenderDataFactory`); rebuilds after single-block updates would skip unchanged axes.
+- `acquireNeighborData` copies 6×1024 longs through the section tracker per mesh; reading the
+  neighbour arrays on demand would avoid the copies (needs care with the tracker's reuse).
+
+## GPU-side candidates (not measured — profile on a real GPU)
+No GPU-side change was made in Phase 2. The smallest candidate, an in-memory `VkPipelineCache`,
+is not clearly safe either: `VkContext` has no teardown hook, so the cache would show up as a
+leaked object when Minecraft destroys the device (validation layers report it). It needs a
+proper shutdown path first.
+- Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
+  every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).
+  Narrow them to the actual producer/consumer stages, and batch the per-TLN `vkCmdUpdateBuffer`
+  writes in `VkHierarchicalOcclusionTraverser` into one upload-stream copy.
+- Pipeline cache: pipelines are created without a `VkPipelineCache`; a persisted cache would cut
+  renderer start-up time (shader compile is runtime because of define permutations).
+- Descriptor usage: push descriptors are re-pushed on every bind; most bindings are static per
+  pipeline and could use a persistent descriptor set + only push the per-frame ones.
+- Memory: geometry buffer is one dedicated VMA allocation sized without a budget query; enabling
+  `VK_EXT_memory_budget` through the Voxy feature set would allow GL-like free-memory sizing.
+- Indirect count: `maxDrawCount` for the terrain MDIC draw is the configured cap; a tighter
+  bound from the previous frame's count could reduce command processor work on some drivers.

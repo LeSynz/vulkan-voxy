@@ -1,6 +1,8 @@
 package me.cortex.voxy.client.core.gl;
 
+import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.gl.shader.ShaderType;
+import me.cortex.voxy.client.core.vulkan.VkContext;
 import me.cortex.voxy.common.Logger;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL20C;
@@ -55,6 +57,29 @@ public class Capabilities {
     public final boolean hasBrokenDepthSampler;
 
     public Capabilities() {
+        if (GpuBackend.isVulkan()) {
+            //Vulkan: everything is queried from minecraft's vulkan device
+            var vk = VkContext.init();
+            this.sparseBuffer = false;
+            this.compute = true;
+            this.indirectParameters = vk.voxyFeaturesEnabled;//drawIndirectCount is part of the voxy feature set
+            this.repFragTest = false;
+            this.meshShaders = false;
+            this.canQueryGpuMemory = false;
+            this.INT64_t = vk.voxyFeaturesEnabled;//shaderInt64 is part of the voxy feature set
+            this.subgroup = vk.hasSubgroupArithmeticInCompute();
+            this.ssboMaxSize = vk.maxStorageBufferRange;
+            this.ssboBindingAlignment = vk.minStorageBufferOffsetAlignment;
+            this.isMesa = vk.isMesa();
+            this.isIntel = vk.isIntel();
+            this.isNvidia = vk.isNvidia();
+            this.isAmd = vk.isAmd();
+            this.totalDedicatedMemory = -1;
+            this.totalDynamicMemory = -1;
+            this.nvBarryCoords = false;
+            this.hasBrokenDepthSampler = false;//GL driver bug, not applicable
+            return;
+        }
         var cap = GL.getCapabilities();
         this.sparseBuffer = cap.GL_ARB_sparse_buffer;
         this.compute = cap.glDispatchComputeIndirect != 0;

@@ -3,7 +3,9 @@ package me.cortex.voxy.client.core.model.bakery;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.backend.opengl.GlTexture;
+import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.model.ModelFactory;
+import me.cortex.voxy.client.core.vulkan.VkTextureReadback;
 import me.cortex.voxy.common.util.UnsafeUtil;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.block.BlockAndTintGetter;
@@ -67,6 +69,12 @@ public class SoftwareModelTextureBakery {
         int width = tex.getWidth(targetMipLevel);
         int height = tex.getHeight(targetMipLevel);
 
+        if (GpuBackend.isVulkan()) {
+            //Asynchronous on vulkan, baking waits until the texture has arrived (see tickTextureReadback)
+            this.pendingReadback = VkTextureReadback.start(tex, targetMipLevel);
+            return;
+        }
+
         //Just do it ourselves as doing it with b3d has some issues, (doing it ourselves is also just much much much shorter)
         var texture = new int[width * height];
 
@@ -81,6 +89,32 @@ public class SoftwareModelTextureBakery {
         glPixelStorei(GL_PACK_ALIGNMENT, 4);
         glGetTextureImage(((GlTexture) tex).glId(), 0, GL_RGBA, GL_UNSIGNED_BYTE, texture);
         this.rasterizer.setSamplerTexture(texture, width, height);
+        this.textureReady = true;
+    }
+
+    private volatile boolean textureReady = false;
+    private VkTextureReadback pendingReadback;
+    private Runnable onTextureReady;
+
+    public boolean isTextureReady() {
+        return this.textureReady;
+    }
+
+    public void setOnTextureReady(Runnable callback) {
+        this.onTextureReady = callback;
+    }
+
+    //Render thread, completes the vulkan block atlas read back
+    public void tickTextureReadback() {
+        if (this.pendingReadback != null && this.pendingReadback.isDone()) {
+            var readback = this.pendingReadback;
+            this.pendingReadback = null;
+            this.rasterizer.setSamplerTexture(readback.takeResult(), readback.width, readback.height);
+            this.textureReady = true;
+            if (this.onTextureReady != null) {
+                this.onTextureReady.run();
+            }
+        }
     }
 
     private void bakeBlockModel(BlockState state) {

@@ -1,7 +1,7 @@
 package me.cortex.voxy.client.core.rendering;
 
 import me.cortex.voxy.client.core.RenderProperties;
-import me.cortex.voxy.client.core.gl.GlBuffer;
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.client.core.rendering.util.DepthFramebuffer;
 import me.cortex.voxy.client.core.rendering.util.HiZBuffer;
 import net.caffeinemc.mods.sodium.client.util.FogParameters;
@@ -13,7 +13,7 @@ import java.lang.reflect.Field;
 public abstract class Viewport <A extends Viewport<A>> {
     //public final HiZBuffer2 hiZBuffer = new HiZBuffer2();
     public final HiZBuffer hiZBuffer;
-    public final DepthFramebuffer depthBoundingBuffer = new DepthFramebuffer();
+    public final DepthFramebuffer depthBoundingBuffer;
 
     private static final Field planesField;
     static {
@@ -45,6 +45,11 @@ public abstract class Viewport <A extends Viewport<A>> {
     public final RenderProperties properties;
 
     protected Viewport(RenderProperties properties) {
+        this(properties, true);
+    }
+
+    //glResources: false for the vulkan viewport, which owns its own hiz/depth bounding resources
+    protected Viewport(RenderProperties properties, boolean glResources) {
         Vector4f[] planes = null;
         try {
              planes = (Vector4f[]) planesField.get(this.frustum);
@@ -54,7 +59,8 @@ public abstract class Viewport <A extends Viewport<A>> {
         this.frustumPlanes = planes;
 
         this.properties = properties;
-        this.hiZBuffer = new HiZBuffer(properties);
+        this.hiZBuffer = glResources?new HiZBuffer(properties):null;
+        this.depthBoundingBuffer = glResources?new DepthFramebuffer():null;
     }
 
     public final void delete() {
@@ -62,8 +68,8 @@ public abstract class Viewport <A extends Viewport<A>> {
     }
 
     protected void delete0() {
-        this.hiZBuffer.free();
-        this.depthBoundingBuffer.free();
+        if (this.hiZBuffer != null) this.hiZBuffer.free();
+        if (this.depthBoundingBuffer != null) this.depthBoundingBuffer.free();
     }
 
     public A setVanillaProjection(Matrix4fc projection) {
@@ -117,12 +123,17 @@ public abstract class Viewport <A extends Viewport<A>> {
                 (float) (this.cameraY-(sy<<5)),
                 (float) (this.cameraZ-(sz<<5)));
 
-        if (this.depthBoundingBuffer.resize(this.width, this.height)) {
-            this.depthBoundingBuffer.clear(this.properties.inverseClearDepth());
-        }
+        this.resizeResources();
 
         return (A) this;
     }
 
-    public abstract GlBuffer getRenderList();
+    //Resize per viewport render targets to the current size
+    protected void resizeResources() {
+        if (this.depthBoundingBuffer.resize(this.width, this.height)) {
+            this.depthBoundingBuffer.clear(this.properties.inverseClearDepth());
+        }
+    }
+
+    public abstract IGpuBuffer getRenderList();
 }

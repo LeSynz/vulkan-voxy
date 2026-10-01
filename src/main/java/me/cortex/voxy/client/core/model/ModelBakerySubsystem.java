@@ -22,7 +22,7 @@ public class ModelBakerySubsystem {
     private volatile Throwable processingThreadException;
     public ModelBakerySubsystem(Mapper mapper) {
         this.mapper = mapper;
-        this.storage = new ModelStore();
+        this.storage = ModelStore.create();
         this.factory = new ModelFactory(mapper, this.storage);
         this.processingThread = new Thread(()->{//TODO replace this with something good/integrate it into the async processor so that we just have less threads overall
             while (this.isRunning) {
@@ -37,6 +37,7 @@ public class ModelBakerySubsystem {
             }
             this.processingThreadException = e;
         });
+        this.factory.bakery2.setOnTextureReady(()->LockSupport.unpark(this.processingThread));
         this.processingThread.start();
     }
 
