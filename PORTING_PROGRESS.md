@@ -98,7 +98,13 @@ The reflected bindings were checked against what the Java side binds for every p
   the old GL value). The text GL compiles is otherwise unchanged.
 
 ## In progress
-- Nothing mid-edit. Next: Phase 2 (CPU optimisation).
+- Nothing mid-edit. Phase 1 and Phase 2 are complete as far as this environment allows (no GPU).
+  Phase 2 results and reverted attempts are in `OPTIMISATION_LOG.md`.
+- Phase 2 touched shared (GL and Vulkan) CPU code, all covered by byte-identical tests:
+  `common/world/other/Mipper.java`, `Mapper.java` (opacity cache), `common/world/SaveLoadSystem3.java`
+  (serialize palette table), `common/voxelization/DataLayerLightingSupplier.java` (new),
+  `ILightingSupplier.java`, `WorldConversionFactory.java`, `common/world/service/VoxelIngestService.java`.
+  These still need an in-game check (world loads, existing saves still read).
 
 ## Remaining GL-only code (no Vulkan equivalent yet)
 - `core/util/GPUTiming.java` — GPU timestamp queries (debug overlay). Vulkan path has no GPU

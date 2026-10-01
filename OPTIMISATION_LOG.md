@@ -17,6 +17,19 @@ GPU; none of them has been measured.
   bootstrapped in-process (`McBootstrap`) so real block states/opacities are used.
 - Rule: a change is kept only if it is measurably faster and the identity test passes.
 
+## Summary
+| target | result |
+|---|---|
+| LOD building (mipping) | kept #1 + #2: terrain −20%, noise −17% per section |
+| Storage (serialization) | kept #3: serialize −42% terrain / −19% sparse / −24% dense; #4, #5 reverted |
+| World ingest (conversion) | kept #6: −60% per section; #7 (world insert) reverted |
+| Compression | measured only (#8): every remaining change would alter stored bytes |
+| Meshing | measured + profiled (#9); #10 reverted, no change kept |
+| GPU side | no change made; candidates listed at the end (none could be measured here) |
+
+All kept changes have a byte-identical JUnit test against a verbatim copy of the original code
+(`./gradlew test`). All numbers are from the CPU-only build environment.
+
 ## Results
 
 ### 1. LOD mipping — `Mipper.mip` uniform fast path — KEPT
@@ -176,6 +189,10 @@ loop structure of the hand-tuned merger, or would only pay off in-game (for prof
   neighbour arrays on demand would avoid the copies (needs care with the tracker's reuse).
 
 ## GPU-side candidates (not measured — profile on a real GPU)
+No GPU-side change was made in Phase 2. The smallest candidate, an in-memory `VkPipelineCache`,
+is not clearly safe either: `VkContext` has no teardown hook, so the cache would show up as a
+leaked object when Minecraft destroys the device (validation layers report it). It needs a
+proper shutdown path first.
 - Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
   every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).
   Narrow them to the actual producer/consumer stages, and batch the per-TLN `vkCmdUpdateBuffer`
