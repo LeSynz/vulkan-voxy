@@ -84,7 +84,16 @@ public class VkGpuBuffer extends TrackedObject implements IGpuBuffer, Destroyabl
         var cmd = VkContext.get().stream.cmd();
         VkBarriers.allToTransfer(cmd);
         vkCmdFillBuffer(cmd, this.buffer, offset, size, data);
-        VkBarriers.transferToAll(cmd);
+        VkBarriers.transferToAll(cmd, this.indirect);
+        return this;
+    }
+
+    //Set on buffers that are consumed by indirect draws/dispatches, barriers after copies/fills to them then also make
+    // the writes visible to indirect command reads
+    public boolean indirect;
+
+    public VkGpuBuffer indirectUse() {
+        this.indirect = true;
         return this;
     }
 

@@ -46,7 +46,7 @@ public class VkHierarchicalOcclusionTraverser {
     private final Int2IntOpenHashMap topNode2idxMapping = new Int2IntOpenHashMap();
     private final int[] idx2topNodeMapping = new int[MAX_QUEUE_SIZE];
     private final VkGpuBuffer topNodeIds = new VkGpuBuffer(MAX_QUEUE_SIZE*4).name("TopNodeIds");
-    private final VkGpuBuffer queueMetaBuffer = new VkGpuBuffer(4*4*MAX_ITERATIONS).name("QueueMeta");
+    private final VkGpuBuffer queueMetaBuffer = new VkGpuBuffer(4*4*MAX_ITERATIONS).name("QueueMeta").indirectUse();
     private final VkGpuBuffer scratchQueueA = new VkGpuBuffer(MAX_QUEUE_SIZE*4).name("ScratchQueueA");
     private final VkGpuBuffer scratchQueueB = new VkGpuBuffer(MAX_QUEUE_SIZE*4).name("ScratchQueueB");
 
@@ -223,11 +223,11 @@ public class VkHierarchicalOcclusionTraverser {
         this.traversal
                 .ssbo(NODE_QUEUE_SOURCE_BINDING, this.topNodeIds)
                 .ssbo(NODE_QUEUE_SINK_BINDING, this.scratchQueueB);
-        VkBarriers.shaderStorageAndCommand(cmd);
+        VkBarriers.shaderStorageAndUniform(cmd);
         this.traversal.bind(cmd);
         this.traversal.pushConstants(cmd, 0);
         this.traversal.dispatch(cmd, firstDispatchSize, 1, 1);
-        VkBarriers.shaderStorageAndCommand(cmd);
+        VkBarriers.shaderStorageAndCommand(cmd);//the next iterations dispatch size comes from the queue meta buffer written by this one
 
         for (int iter = 1; iter < MAX_ITERATIONS; iter++) {
             //Flipflop buffers
@@ -237,7 +237,11 @@ public class VkHierarchicalOcclusionTraverser {
             this.traversal.pushDescriptors(cmd);
             this.traversal.pushConstants(cmd, iter);
             this.traversal.dispatchIndirect(cmd, this.queueMetaBuffer.buffer, iter * 4L * 4);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            if (iter + 1 < MAX_ITERATIONS) {
+                VkBarriers.shaderStorageAndCommand(cmd);
+            } else {
+                VkBarriers.shaderStorageAndUniform(cmd);
+            }
         }
     }
 

@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class RenderStatistics {
-    public static boolean enabled = false;
+    public static boolean enabled = Boolean.getBoolean("voxy.stats");
 
     public static final int[] hierarchicalTraversalCounts = new int[WorldEngine.MAX_LOD_LAYER+1];
     public static final int[] hierarchicalRenderSections = new int[WorldEngine.MAX_LOD_LAYER+1];

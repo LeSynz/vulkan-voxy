@@ -235,6 +235,7 @@ public class VoxyRenderSystem {
         TimingStatistics.postDynamic.stop();
         TimingStatistics.all.stop();
 
+        VkBarriers.frameDone();
         this.ctx.stream.flush();
     }
 

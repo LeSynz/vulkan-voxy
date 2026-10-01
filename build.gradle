@@ -182,6 +182,7 @@ loom {
             for (var e : System.properties.entrySet()) {
                 if (e.key.toString().startsWith("voxy.")) vmArg "-D${e.key}=${e.value}"
             }
+            programArgs "--width", System.getProperty("bench.width", "1920"), "--height", System.getProperty("bench.height", "1080")
         }
     }
 }

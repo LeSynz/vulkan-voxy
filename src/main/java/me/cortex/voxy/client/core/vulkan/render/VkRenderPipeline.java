@@ -154,6 +154,7 @@ public class VkRenderPipeline implements IVkTerrainTargets {
     private void innerPrimaryWork(VkCommandBuffer cmd, VkViewport viewport) {
         //Compute the mip chain
         viewport.hiz.buildMipChain(cmd, this.fb.getImage().sampleView, viewport.width, viewport.height);
+        VkGpuTimer.mark(cmd, "hiz");
 
         do {
             TimingStatistics.main.stop();
@@ -169,6 +170,7 @@ public class VkRenderPipeline implements IVkTerrainTargets {
             TimingStatistics.dynamic.stop();
             TimingStatistics.main.start();
 
+            VkGpuTimer.mark(cmd, "node updates");
             TimingStatistics.F.start();
             this.traversal.doTraversal(viewport);
             TimingStatistics.F.stop();
@@ -188,14 +190,14 @@ public class VkRenderPipeline implements IVkTerrainTargets {
         if (occlusionDebug==0) {
             this.innerPrimaryWork(cmd, viewport);
         }
-        VkGpuTimer.mark(cmd, "hiz+traversal");
+        VkGpuTimer.mark(cmd, "traversal");
 
         if (occlusionDebug<=1) {
             TimingStatistics.G.start();
             rs.buildDrawCalls(viewport);
             TimingStatistics.G.stop();
         }
-        VkGpuTimer.mark(cmd, "drawcalls");
+        VkGpuTimer.mark(cmd, "dc translucent");
 
         rs.renderTemporal(viewport);
         VkGpuTimer.mark(cmd, "temporal");

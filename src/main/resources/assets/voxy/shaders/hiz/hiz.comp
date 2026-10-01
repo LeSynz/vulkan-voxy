@@ -1,0 +1,96 @@
+#version 450
+
+//Builds up to 4 levels of the hierarchical depth pyramid per dispatch: every 16x16 tile of the first level is reduced in
+// shared memory to the next 3 levels. Each level is the reduction of the 2x2 texels below it (same reduction, including
+// the hole patching, as the single level at a time fullscreen passes this replaced)
+
+#import <voxy:util/depthutils.glsl>
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D srcTex;//Source depth for the first dispatch, the last level of the previous dispatch afterwards
+layout(binding = 0, r32f) uniform writeonly image2D dstLevel0;
+layout(binding = 1, r32f) uniform writeonly image2D dstLevel1;
+layout(binding = 2, r32f) uniform writeonly image2D dstLevel2;
+layout(binding = 3, r32f) uniform writeonly image2D dstLevel3;
+
+layout(push_constant) uniform PushConstants {
+    ivec2 baseDim;//Size of the first level written by this dispatch
+    int levels;//Number of levels written by this dispatch (1-4)
+};
+
+shared float tile[16*16];
+
+float reduce4(vec4 depths) {
+    bvec4 cv = equal(vec4(FAR), depths);
+    if (any(cv)) {//Patch holes (its very dodgy but should work :tm:, should clamp it to the first 3 levels)
+        depths = mix(vec4(NEAR), depths, cv);
+    }
+    return REDUCTION(REDUCTION(depths.x, depths.y), REDUCTION(depths.z, depths.w));
+}
+
+ivec2 dimAt(int lvl) {
+    return max(baseDim >> lvl, ivec2(1));
+}
+
+void storeLevel(int lvl, ivec2 coord, float value) {
+    if (lvl == 1) {
+        imageStore(dstLevel1, coord, vec4(value));
+    } else if (lvl == 2) {
+        imageStore(dstLevel2, coord, vec4(value));
+    } else {
+        imageStore(dstLevel3, coord, vec4(value));
+    }
+}
+
+//Computes level lvl (1-3) of this tile from the previous level in shared memory
+void reduceLevel(int lvl, ivec2 lid, ivec2 group) {
+    int tileSize = 16 >> lvl;
+    bool onTile = lid.x < tileSize && lid.y < tileSize;
+    ivec2 g = group*tileSize + lid;
+    float v = 0.0f;
+    if (onTile && all(lessThan(g, dimAt(lvl)))) {
+        ivec2 prevDim = dimAt(lvl-1);
+        ivec2 c = g*2;
+        //Clamp to the edge like the sampler did, only matters once a dimension reaches 1
+        ivec2 l0 = min(c, prevDim-1) - group*(tileSize*2);
+        ivec2 l1 = min(c+ivec2(1,0), prevDim-1) - group*(tileSize*2);
+        ivec2 l2 = min(c+ivec2(0,1), prevDim-1) - group*(tileSize*2);
+        ivec2 l3 = min(c+ivec2(1,1), prevDim-1) - group*(tileSize*2);
+        v = reduce4(vec4(tile[l0.y*16+l0.x], tile[l1.y*16+l1.x], tile[l2.y*16+l2.x], tile[l3.y*16+l3.x]));
+        if (lvl < levels) {
+            storeLevel(lvl, g, v);
+        }
+    }
+    barrier();//Everyone is done reading the previous level
+    if (onTile) {
+        tile[lid.y*16+lid.x] = v;
+    }
+    barrier();
+}
+
+void main() {
+    ivec2 lid = ivec2(gl_LocalInvocationID.xy);
+    ivec2 group = ivec2(gl_WorkGroupID.xy);
+
+    {
+        ivec2 g = group*16 + lid;
+        vec2 uv = (vec2(g) + 0.5f) / vec2(baseDim);
+        float v = reduce4(textureGather(srcTex, uv, 0));
+        if (all(lessThan(g, baseDim))) {
+            imageStore(dstLevel0, g, vec4(v));
+        }
+        tile[lid.y*16+lid.x] = v;
+    }
+    barrier();
+
+    if (levels > 1) {
+        reduceLevel(1, lid, group);
+        if (levels > 2) {
+            reduceLevel(2, lid, group);
+            if (levels > 3) {
+                reduceLevel(3, lid, group);
+            }
+        }
+    }
+}

@@ -3,18 +3,16 @@ package me.cortex.voxy.client.core.vulkan.render;
 import me.cortex.voxy.client.core.RenderProperties;
 import me.cortex.voxy.client.core.vulkan.shader.ShaderType;
 import me.cortex.voxy.client.core.vulkan.*;
-import me.cortex.voxy.client.core.vulkan.shader.VkGraphicsPipeline;
-import me.cortex.voxy.client.core.vulkan.shader.VkGraphicsState;
+import me.cortex.voxy.client.core.vulkan.shader.VkComputePipeline;
 import me.cortex.voxy.client.core.vulkan.shader.VkShaderBuilder;
 import org.lwjgl.vulkan.VkCommandBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-//Vulkan port of HiZBuffer: depth pyramid built with one fullscreen pass per level, each level reading the
-// previous one through a single level view (GL used GL_TEXTURE_BASE/MAX_LEVEL + glTextureBarrier for this)
+//Depth pyramid used by the traversal for occlusion culling. Built with compute, up to 4 levels per dispatch (see
+// hiz/hiz.comp), in a single channel float image
 public class VkHiZBuffer {
-    private final VkGraphicsPipeline hiz;
-    private final int format;
+    private final VkComputePipeline reduce;
     private VkImage2D texture;
     private int levels;
     private int width;
@@ -23,22 +21,16 @@ public class VkHiZBuffer {
     public static VkShaderBuilder hizShader(RenderProperties properties) {
         return VkShaderBuilder.make()
                 .apply(properties::apply)
-                .add(ShaderType.VERTEX, "voxy:hiz/blit.vsh")
-                .add(ShaderType.FRAGMENT, "voxy:hiz/blit.fsh");
+                .add(ShaderType.COMPUTE, "voxy:hiz/hiz.comp");
     }
 
     public VkHiZBuffer(RenderProperties properties) {
-        this.format = VkFormats.depthStencil();//Same as GL (DEPTH24_STENCIL8, or D32S8 where unsupported)
-        this.hiz = hizShader(properties).compileGraphics(VkGraphicsState.create()
-                .topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN)
-                .depthFormat(this.format)
-                .depthTest(VK_COMPARE_OP_ALWAYS)
-                .depthWrite(true));
+        this.reduce = hizShader(properties).compileCompute();
     }
 
     private void alloc(int width, int height) {
         this.levels = (int)Math.ceil(Math.log(Math.max(width, height))/Math.log(2));
-        this.texture = new VkImage2D(this.format, this.levels, width, height).name("HiZ");
+        this.texture = new VkImage2D(VK_FORMAT_R32_SFLOAT, this.levels, width, height).name("HiZ");
         this.width  = width;
         this.height = height;
     }
@@ -54,17 +46,27 @@ public class VkHiZBuffer {
         }
         long sampler = VkSamplers.nearestMipNearestClamp();
         VkBarriers.attachmentToSampled(cmd);
-        int cw = this.width;
-        int ch = this.height;
-        for (int i = 0; i < this.levels; i++) {
-            VkRendering.begin(cmd, cw, ch, new long[0], this.texture.attachmentView(i), this.texture.hasStencil);
-            this.hiz.texture(0, i == 0 ? srcDepthView : this.texture.levelSampleView(i - 1), sampler);
-            this.hiz.bind(cmd);
-            vkCmdDraw(cmd, 4, 1, 0, 0);
-            VkRendering.end(cmd);
-            VkBarriers.attachmentToSampled(cmd);
-            cw = Math.max(cw/2, 1); ch = Math.max(ch/2, 1);
+        long src = srcDepthView;
+        int level = 0;
+        while (level < this.levels) {
+            int count = Math.min(4, this.levels - level);
+            int dimX = Math.max(this.width >> level, 1);
+            int dimY = Math.max(this.height >> level, 1);
+            this.reduce.texture(0, src, sampler);
+            for (int i = 0; i < 4; i++) {
+                //Unused outputs are bound to a valid view, they are never written
+                this.reduce.image(i, this.texture.attachmentView(Math.min(level + i, level + count - 1)));
+            }
+            this.reduce.bind(cmd);
+            this.reduce.pushConstants(cmd, dimX, dimY, count);
+            this.reduce.dispatch(cmd, (dimX + 15) / 16, (dimY + 15) / 16, 1);
+            level += count;
+            if (level < this.levels) {
+                VkBarriers.storageToSampled(cmd);
+                src = this.texture.levelSampleView(level - 1);
+            }
         }
+        VkBarriers.storageToAll(cmd);
     }
 
     public void free() {
@@ -72,7 +74,7 @@ public class VkHiZBuffer {
             this.texture.free();
             this.texture = null;
         }
-        this.hiz.free();
+        this.reduce.free();
     }
 
     public long getHizView() {

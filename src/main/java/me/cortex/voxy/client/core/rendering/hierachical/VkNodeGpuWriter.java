@@ -75,7 +75,7 @@ public class VkNodeGpuWriter implements INodeGpuWriter {
         this.scatterWrite.bind(cmd);
         this.scatterWrite.pushConstants(cmd, count);
         this.scatterWrite.dispatch(cmd, (count+127)/128, 1, 1);
-        VkBarriers.shaderStorageAndCommand(cmd);
+        VkBarriers.shaderStorageAndUniform(cmd);
     }
 
     @Override

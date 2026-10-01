@@ -12,6 +12,7 @@ import static org.lwjgl.vulkan.VK13.*;
 public final class VkRendering {
     //depthView == 0: no depth attachment. stencil: whether the depth view also has a stencil aspect
     public static void begin(VkCommandBuffer cmd, int width, int height, long[] colorViews, long depthView, boolean stencil) {
+        VkBarriers.passCount++;
         try (var stack = MemoryStack.stackPush()) {
             var colors = VkRenderingAttachmentInfo.calloc(colorViews.length, stack);
             for (int i = 0; i < colorViews.length; i++) {

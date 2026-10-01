@@ -100,8 +100,7 @@ public class VkSSAO {
         this.ssaoCompute.bind(cmd);
         this.ssaoCompute.dispatch(cmd, (viewport.width+7)/8, (viewport.height+7)/8, 1);
         //Storage image writes -> later attachment use/sampling
-        VkBarriers.barrier(cmd, org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, org.lwjgl.vulkan.VK13.VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, org.lwjgl.vulkan.VK13.VK_ACCESS_2_MEMORY_READ_BIT | org.lwjgl.vulkan.VK13.VK_ACCESS_2_MEMORY_WRITE_BIT);
+        VkBarriers.storageToAll(cmd);
     }
 
     public void free() {

@@ -231,6 +231,7 @@ public class VkSectionRenderer {
             this.prepShader.dispatch(cmd, 1, 1, 1);
             VkBarriers.shaderStorageAndCommand(cmd);
         }
+        VkGpuTimer.mark(cmd, "dc prep");
 
         {//Test occlusion (rasterize section AABBs against the opaque depth, fragments mark the section visible)
             this.cullShader
@@ -243,8 +244,9 @@ public class VkSectionRenderer {
             vkCmdBindIndexBuffer(cmd, this.indices.cube.buffer, 0, VK_INDEX_TYPE_UINT16);
             vkCmdDrawIndexedIndirect(cmd, viewport.drawCountCallBuffer.buffer, 6*4, 1, DRAW_COMMAND_STRIDE);
             VkRendering.end(cmd);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
         }
+        VkGpuTimer.mark(cmd, "dc cull raster");
 
         {//Generate the commands
             this.distanceCountBuffer.zeroRange(0, 1024*4);
@@ -264,7 +266,7 @@ public class VkSectionRenderer {
             VkBarriers.shaderStorage(cmd);
             this.commandGenShader.bind(cmd);
             this.commandGenShader.dispatchIndirect(cmd, viewport.drawCountCallBuffer.buffer, 0);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
 
             if (RenderStatistics.enabled) {
                 DownloadStream.INSTANCE.download(this.statisticsBuffer, down->{
@@ -278,6 +280,8 @@ public class VkSectionRenderer {
                 });
             }
         }
+
+        VkGpuTimer.mark(cmd, "dc cmdgen");
 
         {//Translucency sorting
             this.prefixSumShader.ssbo(0, this.distanceCountBuffer);
@@ -293,10 +297,10 @@ public class VkSectionRenderer {
                     .ssbo(3, this.geometryManager.getMetadataBuffer())
                     .ssbo(4, viewport.indirectLookupBuffer)
                     .ssbo(5, this.distanceCountBuffer);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
             this.translucentGenShader.bind(cmd);
             this.translucentGenShader.dispatchIndirect(cmd, viewport.drawCountCallBuffer.buffer, 0);
-            VkBarriers.shaderStorageAndCommand(cmd);
+            VkBarriers.shaderStorageAndUniform(cmd);
         }
     }
 
