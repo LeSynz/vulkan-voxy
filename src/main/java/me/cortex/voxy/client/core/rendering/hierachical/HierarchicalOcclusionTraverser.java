@@ -138,7 +138,7 @@ public class HierarchicalOcclusionTraverser {
                 .ssbo("REQUEST_QUEUE_BINDING", this.requestBuffer)
                 .ssbo("NODE_DATA_BINDING", this.nodeBuffer)
                 .ssbo("NODE_QUEUE_META_BINDING", this.queueMetaBuffer)
-                .ssbo("RENDER_TRACKER_BINDING", this.nodeCleaner.visibilityBuffer)
+                .ssbo("RENDER_TRACKER_BINDING", ((GlNodeCleaner)this.nodeCleaner).visibilityBuffer)
                 .ssboIf("STATISTICS_BUFFER_BINDING", this.statisticsBuffer);
     }
 

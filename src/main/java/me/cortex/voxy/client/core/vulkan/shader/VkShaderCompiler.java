@@ -22,6 +22,8 @@ public final class VkShaderCompiler {
     private static final Pattern INSTANCE_ID = Pattern.compile("\\bgl_InstanceID\\b");
     private static final Pattern BASE_INSTANCE_ARB = Pattern.compile("\\bgl_BaseInstanceARB\\b");
     private static final Pattern DRAW_ID_ARB = Pattern.compile("\\bgl_DrawIDARB\\b");
+    //Debug printf statements (rewritten by PrintfInjector on GL), not supported on vulkan
+    private static final Pattern PRINTF = Pattern.compile("\\bprintf\\s*\\(\"[^\"]*\"[^;]*\\);");
 
     public static int shadercKind(ShaderType type) {
         return switch (type) {
@@ -39,6 +41,7 @@ public final class VkShaderCompiler {
         src = INSTANCE_ID.matcher(src).replaceAll("(gl_InstanceIndex-gl_BaseInstance)");
         src = BASE_INSTANCE_ARB.matcher(src).replaceAll("gl_BaseInstance");
         src = DRAW_ID_ARB.matcher(src).replaceAll("gl_DrawID");
+        src = PRINTF.matcher(src).replaceAll("/*printf removed (vulkan)*/;");
         return src;
     }
 

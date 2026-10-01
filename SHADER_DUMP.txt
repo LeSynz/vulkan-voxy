@@ -1,0 +1,307 @@
+#version 460 core
+#define ELEMS_PER_THREAD 8
+#define VISIBILITY_BUFFER_BINDING 1
+#define WORK_SIZE 64
+#define NODE_DATA_BINDING 3
+#define OUTPUT_BUFFER_BINDING 2
+#define OUTPUT_SIZE 256
+#define VOXY_VULKAN 
+#define IS_INTEL 
+//Uses intrinsics and other operations to perform very fast sorting
+// we dont need a propper sort, only a fuzzy sort, as in we only need to top 128 entries, but those can be unsorted
+
+//#define OUTPUT_SIZE 128
+
+layout(local_size_x=WORK_SIZE, local_size_y=1) in;
+#define OPS_PER_THREAD (OUTPUT_SIZE/WORK_SIZE)
+
+#ifndef _POS_UTIL_DECL
+#define _POS_UTIL_DECL
+
+uint getLoDLevel(uvec2 packedPos) {
+    return packedPos.x>>28;
+}
+
+ivec3 getLoDPosition(uvec2 packedPos) {
+    int y = ((int(packedPos.x)<<4)>>24);
+    int x = (int(packedPos.y)<<4)>>8;
+    int z = int((packedPos.x&((1u<<20)-1))<<4);
+    z |= int(packedPos.y>>28);
+    z <<= 8;
+    z >>= 8;
+    return ivec3(x,y,z);
+}
+
+#endif
+layout(binding = NODE_DATA_BINDING, std430) restrict buffer NodeData {
+//Needs to be read and writeable for marking data,
+//(could do an evil violation, make this readonly, then have a writeonly varient, which means that writing might not be visible but will show up by the next frame)
+//Nodes are 16 bytes big (or 32 cant decide, 16 might _just_ be enough)
+    uvec4[] nodes;
+};
+
+//First 2 are joined to be the position
+
+//All node access and setup into global variables
+//TODO: maybe make it global vars
+struct UnpackedNode {
+    uint nodeId;
+
+    uvec2 rawPos;
+
+    ivec3 pos;
+    uint lodLevel;
+
+    uint flags;
+
+    uint meshPtr;
+    uint childPtr;
+};
+
+#define NULL_NODE ((1<<24)-1)
+#define EMPTY_QUEUE_ID ((1<<24)-2)
+#define NULL_MESH ((1<<24)-1)
+#define EMPTY_MESH ((1<<24)-2)
+
+uvec4 unpackNode(out UnpackedNode node, uint nodeId) {
+    uvec4 compactedNode = nodes[nodeId];
+    node.nodeId = nodeId;
+    node.lodLevel = getLoDLevel(compactedNode.xy);
+    node.rawPos = compactedNode.xy;
+    node.pos = getLoDPosition(compactedNode.xy);
+
+    node.meshPtr = compactedNode.z&0xFFFFFFu;
+    node.childPtr = compactedNode.w&0xFFFFFFu;
+    node.flags = ((compactedNode.z>>24)&0xFFu) | (((compactedNode.w>>24)&0xFFu)<<8);
+    return compactedNode;
+}
+
+bool hasMesh(in UnpackedNode node) {
+    return node.meshPtr != NULL_MESH;
+}
+
+bool isEmptyMesh(in UnpackedNode node) {
+    return node.meshPtr == EMPTY_MESH;//Specialcase
+}
+
+bool hasChildren(in UnpackedNode node) {
+    return node.childPtr != NULL_NODE;
+}
+
+bool childListIsEmpty(in UnpackedNode node) {
+    return node.childPtr == EMPTY_QUEUE_ID;
+}
+
+//bool isEmpty(in UnpackedNode node) {
+//    return (node.flags&2u) != 0;
+//}
+
+bool hasRequested(in UnpackedNode node) {
+    return (node.flags&1u) != 0u;
+}
+
+uint getMesh(in UnpackedNode node) {
+    return node.meshPtr;
+}
+
+uint getId(in UnpackedNode node) {
+    return node.nodeId;
+}
+
+uint getChildCount(in UnpackedNode node) {
+    return ((node.flags >> 2)&7U)+1;
+}
+
+uint getChildPtr(in UnpackedNode node) {
+    return node.childPtr;
+}
+
+uvec2 getRawPos(in UnpackedNode node) {
+    return node.rawPos;
+}
+
+/*
+uint getTransformIndex(in UnpackedNode node) {
+    return (node.flags >> 5)&31u;
+}*/
+
+//-----------------------------------
+
+void markRequested(inout UnpackedNode node) {
+    node.flags |= 1u;
+    nodes[node.nodeId].z |= 1u<<24;
+}
+
+void debugDumpNode(in UnpackedNode node) {
+    printf("Node %d, %d@[%d,%d,%d], flags: %d, mesh: %d, ChildPtr: %d", node.nodeId, node.lodLevel, node.pos.x, node.pos.y, node.pos.z, node.flags, node.meshPtr, node.childPtr);
+}
+
+layout(binding = VISIBILITY_BUFFER_BINDING, std430) restrict readonly buffer VisibilityDataBuffer {
+    uint[] visibility;
+};
+
+layout(binding = OUTPUT_BUFFER_BINDING, std430) restrict volatile buffer MinimumVisibilityBuffer {//TODO: might need to be volatile
+    uint minVisIds[OUTPUT_SIZE];
+};
+
+//Returns the id of the max value
+uint atomicDerefMaxExchangeGlobal(uint atId, uint id) {
+    const uint value = visibility[id];
+    while (true) {
+        const uint existingId = minVisIds[atId];//TODO: check that this does what we want, and that it obtains the value of atValue, at this point
+        if (existingId == id) {//If we are trying to insert self, return -1
+            return uint(-1);
+        }
+        //Check if the value is less than the dereferenced value, if its not, return our own id
+        if (visibility[existingId&((1u<<31)-1)] <= value) {//Remove the flag bit
+            return id;
+        }
+        //Attempt to swap, since we know we are less than the existingId
+        const uint c = atomicCompSwap(minVisIds[atId], existingId, id);
+        //Check if we did swap, else if we failed (or got reswapped else where) recheck
+
+        //We did swap, (since the original mem contents was the existing id)
+        // which means existingId is now the max of the ptr
+        if (c == existingId) {
+            return existingId;
+        }
+    }
+}
+
+//TODO: optimize
+void bubbleSortGlobal(uint start, uint id) {
+    for (uint i = start; i < OUTPUT_SIZE; i++) {
+        id = atomicDerefMaxExchangeGlobal(i, id);
+        if (id == uint(-1)) {
+            break;
+        }
+    }
+}
+
+//TODO: maybe also have a shared "cache" of the visibility data
+// meaning that the shader doesnt need to access global memory as much
+shared uint initalSort[OUTPUT_SIZE];
+
+
+//Returns the id of the max value
+uint atomicDerefMaxExchangeLocal(uint atId, uint id) {
+    const uint value = visibility[id];
+    while (true) {
+        const uint existingId = initalSort[atId];//TODO: check that this does what we want, and that it obtains the value of atValue, at this point
+        if (existingId == id) {//If we are trying to insert self, return -1
+            return uint(-1);
+        }
+        //Check if the value is less than the dereferenced value, if its not, return our own id
+        if (visibility[existingId&((1u<<31)-1)] <= value) {//Remove the flag bit
+            return id;
+        }
+        //Attempt to swap, since we know we are less than the existingId
+        const uint c = atomicCompSwap(initalSort[atId], existingId, id);
+        //Check if we did swap, else if we failed (or got reswapped else where) recheck
+
+        //We did swap, (since the original mem contents was the existing id)
+        // which means existingId is now the max of the ptr
+        if (c == existingId) {
+            return existingId;
+        }
+    }
+}
+void bubbleSortInital(uint vis, uint id) {
+    uint start = 0;
+    //Fast path cut out half the ops
+    if (visibility[initalSort[(OUTPUT_SIZE-1)>>1]] <= vis) {//Check if we are more than half way
+        start = (OUTPUT_SIZE-1)>>1;
+    }
+
+    for (uint i = start; i < OUTPUT_SIZE; i++) {
+        id = atomicDerefMaxExchangeLocal(i, id);
+    }
+}
+
+bool shouldSortId(uint id) {
+    UnpackedNode node;
+    if (unpackNode(node, id)==uvec4(-1)) {
+        return false;//Unallocated node
+    }
+    if (isEmptyMesh(node) || (!hasMesh(node))) {//|| (!hasChildren(node))
+        return false;
+    }
+    //TODO: FIXME: DONT HARDCODE TOP LEVEL LOD LEVEL
+    if (node.lodLevel == 4) {// (!hasChildren(node)) -> Assume leaf node
+        return false;//Cannot remove geometry from top level node
+    }
+
+    if (hasRequested(node)) {//If a node has a request its not valid to remove
+        return false;
+    }
+
+    /*THIS IS COMPLETLY WRONG, we need to check if all the children of the parent of the child are leaf nodes
+    // not this node
+
+    //Very sneeky hack, ensure all children are leaf nodes
+    if (hasChildren(node)&&!childListIsEmpty(node)) {
+        uint ptr = getChildPtr(node);
+        uint cnt = getChildCount(node);
+        for (uint i = 0; i < cnt; i++) {
+            UnpackedNode child;
+            unpackNode(child, i+ptr);
+            if (hasChildren(child)) {
+                return;
+            }
+        }
+    }
+    */
+
+    return true;
+}
+void main() {
+    //Cheaky trick, copy the _global buffer_ into the local buffer
+    // this means that insertion into the local buffer can be accelerated W.R.T global
+    for (uint i = 0; i < OPS_PER_THREAD; i++) {
+        //Copy in with warp size batch fetch
+        uint id = (gl_LocalInvocationID.x*OPS_PER_THREAD) + i;
+        initalSort[id] = minVisIds[id]|(1u<<31);//Flag the id as being external
+    }
+    barrier();
+    //Do insertion and sort into local shared buffer
+    for (uint i = 0; i < ELEMS_PER_THREAD; i++) {
+        uint id = gl_GlobalInvocationID.x*ELEMS_PER_THREAD+i;
+        uint vis = visibility[id];
+        if (vis == uint(-1)) {
+            continue;
+        }
+        //Quick exit if this element is already bigger than global output
+        if (visibility[minVisIds[OUTPUT_SIZE-1]] <= vis) {
+            continue;
+        }
+        if (!shouldSortId(id)) {
+            continue;
+        }
+
+        bubbleSortInital(vis, id);
+    }
+    barrier();
+    //Do insertion into global visibility array
+    // this is done front to back
+
+    //Work size batching
+    for (uint i = 0; i < OPS_PER_THREAD; i++) {
+        barrier();//Probably unneeded, was just to keep warp coheriancy
+        uint id = (gl_LocalInvocationID.x*OPS_PER_THREAD)+i;
+        uint sid = initalSort[id];
+        if ((sid&(1u<<31)) != 0) {
+            //The flag being external was set, meaning we should NOT insert this element
+            continue;
+        }
+        uint vis = visibility[sid];
+        //If output is already smaller than self
+        if (visibility[minVisIds[OUTPUT_SIZE-1]] <= vis) {
+            continue;
+        }
+        uint start = id;
+        if (visibility[minVisIds[(id+OUTPUT_SIZE)>>1]] <= vis) {//Try to skip
+            start = (id+OUTPUT_SIZE)>>1;
+        }
+        bubbleSortGlobal(start, sid);//Insert into global
+    }
+}
