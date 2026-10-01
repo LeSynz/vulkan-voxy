@@ -34,12 +34,13 @@ public final class VoxyBenchmark {
     private static final boolean POSES = !"false".equals(System.getProperty("voxy.bench.poses", "true"));
     private static final double POSE_WAIT_S = Double.parseDouble(System.getProperty("voxy.bench.poseWait", "8"));
     private static int poseIndex;
+    private static int stressStep = -1;
     private static boolean poseShot;
     private static boolean joinRequested;
     private static int waitFrames;
     private static long lastScreenLogNs;
 
-    private enum Phase {WAIT_WORLD, SETTLE, POSES, RUN, DONE}
+    private enum Phase {WAIT_WORLD, SETTLE, STRESS, POSES, RUN, DONE}
 
     private static Phase phase = Phase.WAIT_WORLD;
     private static long startNs, phaseStartNs, lastFrameNs, lastSampleNs;
@@ -111,7 +112,7 @@ public final class VoxyBenchmark {
                         SectionDump.dump(IVoxyRenderSystemHolder.getNullable(), Path.of(dumpTo), (int) Math.floor(p.getX()) >> 5, (int) Math.floor(p.getY()) >> 5, (int) Math.floor(p.getZ()) >> 5,
                                 new int[]{Integer.getInteger("voxy.bench.dump0", 700), Integer.getInteger("voxy.bench.dump1", 120), Integer.getInteger("voxy.bench.dump2", 40)});
                     }
-                    phase = POSES ? Phase.POSES : Phase.RUN;
+                    phase = Boolean.getBoolean("voxy.bench.stress") ? Phase.STRESS : (POSES ? Phase.POSES : Phase.RUN);
                     phaseStartNs = now;
                     lastFrameNs = 0;
                     if (phase == Phase.RUN) {
@@ -125,6 +126,29 @@ public final class VoxyBenchmark {
                     }
                 }
                 place(mc, 0);
+            }
+            case STRESS -> {
+                //Lifecycle stress: tear the renderer down and recreate it, resize the window, while frames keep running
+                double t = (now - phaseStartNs) / 1e9;
+                sample(mc, now);
+                int step = (int) (t / 1.5);
+                if (step != stressStep) {
+                    stressStep = step;
+                    var holder = me.cortex.voxy.client.core.IVoxyRenderSystemHolder.getNullableHolder();
+                    Logger.info("[bench] stress step " + step);
+                    switch (step % 4) {
+                        case 0 -> holder.voxy$shutdownRenderer();
+                        case 1 -> holder.voxy$createRenderer();
+                        case 2 -> mc.getWindow().setWindowed(step % 8 == 2 ? 1000 : 640, step % 8 == 2 ? 600 : 360);
+                        default -> mc.getWindow().setWindowed(1920, 1080);
+                    }
+                }
+                if (step >= 24) {
+                    phase = POSES ? Phase.POSES : Phase.RUN;
+                    phaseStartNs = now;
+                    lastFrameNs = 0;
+                    Logger.info("[bench] stress done");
+                }
             }
             case POSES -> {
                 //Stationary screenshots at fixed poses for image comparison between builds

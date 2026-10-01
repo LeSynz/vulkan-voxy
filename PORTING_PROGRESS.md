@@ -14,6 +14,8 @@ Sodium 0.9.2, 1920x1080.
 - Khronos validation layer with **synchronization validation** (core + sync) over benchmark runs at 5 window sizes
   (400x300 .. 2560x1440): no Voxy errors. The only messages are Minecraft's own `vkCmdWriteBufferMarker2AMD`
   hazard (AMD buffer marker feature set, Minecraft internal) and objects left over at device destruction.
+- Lifecycle stress (`-Dvoxy.bench.stress=true`): 6 renderer shutdown/recreate cycles and window resizes (1920x1080 -> 1000x600 ->
+  640x360 -> 1920x1080) while rendering, under validation: no errors, no leaked tracked objects.
 - Everything else (other GPUs and drivers, AMD/Intel, the SSAO modes BETTER/BEST, the fog modes other than
   the default, classic transparency, resizing/fullscreen toggles, other resource packs) has **not** been tested.
 

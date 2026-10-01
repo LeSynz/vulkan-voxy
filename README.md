@@ -28,6 +28,7 @@ counts, loading metrics) to a json file. It needs a world in `run-bench/saves/<n
 Options of `run-bench/options.txt` and `run-bench/config/voxy-config.json` are used as is. The benchmark class is
 `client/bench/VoxyBenchmark` (inactive unless `-Dvoxy.bench=true`, which `runBench` sets). Stationary screenshots at 4
 fixed poses are saved to `run-bench/screenshots/` (`bench-<label>-poseN.png`) for comparing builds.
+`-Dvoxy.bench.stress=true` instead runs a lifecycle stress test (renderer teardown/recreate and window resizes while rendering).
 `-Dvoxy.bench.dump=<file>` additionally dumps real world sections plus the real baked model tables, which
 `VOXY_REAL_DATA=<file> ./gradlew jmh -PjmhIncludes=RealMeshingJMH` and `RealMeshingIdentityTest` use.
 
