@@ -12,6 +12,12 @@ import static org.lwjgl.vulkan.VK13.*;
 public final class VkRendering {
     //depthView == 0: no depth attachment. stencil: whether the depth view also has a stencil aspect
     public static void begin(VkCommandBuffer cmd, int width, int height, long[] colorViews, long depthView, boolean stencil) {
+        begin(cmd, width, height, colorViews, depthView, stencil, false, 0, 0);
+    }
+
+    //clearDepthStencil: clears the depth (and stencil) attachment when the pass begins instead of loading it, replaces a
+    // separate vkCmdClearDepthStencilImage and its barriers
+    public static void begin(VkCommandBuffer cmd, int width, int height, long[] colorViews, long depthView, boolean stencil, boolean clearDepthStencil, float clearDepth, int clearStencil) {
         VkBarriers.passCount++;
         try (var stack = MemoryStack.stackPush()) {
             var colors = VkRenderingAttachmentInfo.calloc(colorViews.length, stack);
@@ -32,8 +38,11 @@ public final class VkRendering {
                 var depth = VkRenderingAttachmentInfo.calloc(stack).sType$Default()
                         .imageView(depthView)
                         .imageLayout(VK_IMAGE_LAYOUT_GENERAL)
-                        .loadOp(VK_ATTACHMENT_LOAD_OP_LOAD)
+                        .loadOp(clearDepthStencil ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD)
                         .storeOp(VK_ATTACHMENT_STORE_OP_STORE);
+                if (clearDepthStencil) {
+                    depth.clearValue().depthStencil().set(clearDepth, clearStencil);
+                }
                 info.pDepthAttachment(depth);
                 if (stencil) {
                     info.pStencilAttachment(depth);

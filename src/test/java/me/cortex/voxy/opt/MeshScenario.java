@@ -34,6 +34,16 @@ public final class MeshScenario {
         this.world = MeshingFixture.createWorld(this.storage);
     }
 
+    //Real sections (lod 0 only are meshed/positions) of a game dump
+    public MeshScenario(RealData real) {
+        this.models = MeshingFixture.createModels(real);
+        real.sections.forEach(this.storage.sections::put);
+        for (var p : real.positions) {
+            if (p[0] == 0) this.positions.add(p);
+        }
+        this.world = MeshingFixture.createWorld(this.storage);
+    }
+
     public WorldSection acquire(int i) {
         var p = this.positions.get(i);
         return this.world.acquire((int) p[0], (int) p[1], (int) p[2], (int) p[3]);

@@ -176,6 +176,9 @@ loom {
             runDir "run-bench"
             vmArg "-Dvoxy.bench=true"
             vmArg "-Xmx6G"
+            if (System.getProperty("bench.jvmargs") != null) {
+                System.getProperty("bench.jvmargs").split(" ").each { if (!it.isEmpty()) vmArg it }
+            }
             if (System.getProperty("bench.jfr") != null) {
                 vmArg "-XX:StartFlightRecording=filename=${System.getProperty("bench.jfr")},settings=profile,dumponexit=true"
             }

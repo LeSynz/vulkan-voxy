@@ -138,11 +138,11 @@ public class VkRenderPipeline implements IVkTerrainTargets {
     }
 
     private void initDepthStencil(VkCommandBuffer cmd, VkViewport viewport, VkFrameTarget target) {
-        this.fb.clear(this.properties.clearDepth(), 1);
-        //Depth copy is done with a fullscreen pass (mismatched depth formats can't be blitted portably)
+        //Depth copy is done with a fullscreen pass (mismatched depth formats can't be blitted portably), the attachment is
+        // cleared by the pass itself (depth cleared, stencil 1 = no vanilla terrain here)
         var depth = this.fb.getImage();
         VkBarriers.attachmentToSampled(cmd);
-        VkRendering.begin(cmd, viewport.width, viewport.height, new long[0], depth.attachmentView(0), depth.hasStencil);
+        VkRendering.begin(cmd, viewport.width, viewport.height, new long[0], depth.attachmentView(0), depth.hasStencil, true, this.properties.clearDepth(), 1);
         this.depthStencilSetup.texture(0, target.depthView(), VkSamplers.nearestClamp());
         this.depthStencilSetup.bind(cmd);
         try (var stack = org.lwjgl.system.MemoryStack.stackPush()) {

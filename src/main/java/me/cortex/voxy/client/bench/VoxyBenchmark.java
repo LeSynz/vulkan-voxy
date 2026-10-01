@@ -105,6 +105,12 @@ public final class VoxyBenchmark {
                             if (e[1] >= fin * 0.9) { timeTo90Sections = e[0]; break; }
                         }
                     }
+                    var dumpTo = System.getProperty("voxy.bench.dump");
+                    if (dumpTo != null && IVoxyRenderSystemHolder.getNullable() != null) {
+                        var p = mc.player;
+                        SectionDump.dump(IVoxyRenderSystemHolder.getNullable(), Path.of(dumpTo), (int) Math.floor(p.getX()) >> 5, (int) Math.floor(p.getY()) >> 5, (int) Math.floor(p.getZ()) >> 5,
+                                new int[]{Integer.getInteger("voxy.bench.dump0", 700), Integer.getInteger("voxy.bench.dump1", 120), Integer.getInteger("voxy.bench.dump2", 40)});
+                    }
                     phase = POSES ? Phase.POSES : Phase.RUN;
                     phaseStartNs = now;
                     lastFrameNs = 0;

@@ -62,6 +62,22 @@ public final class MeshingFixture {
         }
     }
 
+    //Model tables from a real game (see RealData)
+    public static Models createModels(RealData real) {
+        try {
+            var unsafeField = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");
+            unsafeField.setAccessible(true);
+            var unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+            var factory = (ModelFactory) unsafe.allocateInstance(ModelFactory.class);
+            set(factory, "metadataCache", real.metadata);
+            set(factory, "fluidStateLUT", real.fluidLut);
+            set(factory, "idMappings", real.idMappings);
+            return new Models(factory, real.metadata, real.fluidLut, real.idMappings, 0, real.blockIdCount);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     //randomModels extra models with random (but well formed) metadata; every block id maps to a model
     public static Models createModels(Random r, int randomModels) {
         long[] metadata = new long[1 << 16];

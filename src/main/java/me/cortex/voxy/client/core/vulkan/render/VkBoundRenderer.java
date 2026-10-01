@@ -50,8 +50,13 @@ public class VkBoundRenderer {
     public void render(VkViewport viewport, IBoundStore store) {
         store.preRender(viewport);
         int count = store.getCount();
-        viewport.depthBounding.clear(this.properties.inverseClearDepth());
         if (count == 0) {
+            //Nothing to rasterize, just clear
+            var depth = viewport.depthBounding.getImage();
+            var cmd = VkContext.get().stream.cmd();
+            VkRendering.begin(cmd, depth.width, depth.height, new long[0], depth.attachmentView(0), false, true, this.properties.inverseClearDepth(), 0);
+            VkRendering.end(cmd);
+            VkBarriers.attachmentToSampled(cmd);
             return;
         }
         this.rasterShader.ssbo(1, (VkGpuBuffer) store.getBuffer());
@@ -82,7 +87,7 @@ public class VkBoundRenderer {
         var cmd = VkContext.get().stream.cmd();
         VkBarriers.shaderStorage(cmd);
         var depth = viewport.depthBounding.getImage();
-        VkRendering.begin(cmd, depth.width, depth.height, new long[0], depth.attachmentView(0), false);
+        VkRendering.begin(cmd, depth.width, depth.height, new long[0], depth.attachmentView(0), false, true, this.properties.inverseClearDepth(), 0);
         this.rasterShader.bind(cmd);
         vkCmdBindIndexBuffer(cmd, this.indices.boundingBoxCubes.buffer, 0, VK_INDEX_TYPE_UINT16);
         //Batch the draws into groups of size 32
