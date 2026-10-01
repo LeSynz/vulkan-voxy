@@ -115,6 +115,45 @@ existing `WorldUpdaterJMH`) showed no gain: baseline 15.773 ± 0.928 (current) /
 memory traffic into the 256 KB world section, not by the loop. Reverted; the benchmark and the
 identity test stay for future attempts.
 
+### 8. Storage — compression (ZSTD / LZ4) — assessed, NO CHANGE
+Files: `common/config/compressors/ZSTDCompressor.java`, `LZ4Compressor.java`.
+Both are thin wrappers over native code (LWJGL zstd with thread-local contexts and scratch
+buffers; Minecraft's lz4-java native instance). Every remaining knob (level, strategy, window,
+dictionary, frame/checksum flags) changes the compressed bytes, which the byte-identical rule does
+not allow, so the compressors were only measured. Benchmark `StoragePipelineJMH` (one 32³
+section, µs/op; "save" = serialize + compress, "load" = decompress + deserialize):
+
+| compressor / data | serialized → compressed size | compress | decompress | save (current) | save (original serializer) | load (current) |
+|---|---|---|---|---|---|---|
+| ZSTD level 1 (default) / terrain | 66001 → 1915 B | 57.3 ± 2.8 | 31.5 ± 0.6 | 124.7 ± 4.2 | 165.6 ± 7.1 | 67.1 ± 5.3 |
+| ZSTD level 1 / dense300 | 67952 → 45921 B | 92.8 ± 3.8 | 47.8 ± 1.8 | 264.4 ± 12.9 | 312.5 ± 13.2 | 84.4 ± 4.1 |
+| LZ4 / terrain | 66001 → 4941 B | 30.3 ± 0.9 | 40.3 ± 1.7 | 94.2 ± 5.4 | 131.6 ± 8.8 | 79.7 ± 4.6 |
+| LZ4 / dense300 | 67952 → 68208 B | 15.7 ± 0.7 | 10.4 ± 0.4 | 194.2 ± 17.5 | 238.3 ± 13.1 | 44.1 ± 5.2 |
+
+With the default ZSTD level 1 the whole section save is −25% (terrain) / −15% (dense) thanks to #3.
+Compression is ~45% of the terrain save time after #3. Changing the default level or compressor
+is a format/size trade-off for the maintainer, not a byte-identical optimisation, so it is
+only noted here.
+
+### 9. Meshing — `RenderDataFactory.generateMesh` — baseline
+Benchmark `MeshingJMH` and test `MeshingIdentityTest` run the mesher headless: `MeshingFixture`
+builds a `ModelFactory` whose model tables (`idMappings`, `metadataCache`, `fluidStateLUT`, the
+only state the mesher reads) hold synthetic metadata in the exact bit layout
+`ModelFactory.processTextureBakeResult` writes (solid, biome-tinted, water, lava, leaves, glass,
+double-sided plants, waterlogged blocks, light emitters + 300 random well-formed models), and a
+`WorldEngine` over an in-memory `SectionStorage` so neighbour faces are fetched through the real
+section tracker. The identity test compares position, child mask, AABB, buffer offsets and every
+geometry byte against a verbatim copy of the original (`ReferenceRenderDataFactory`) for terrain
+at levels 0–2 (~5k quads per section), dense random (~91k quads per section) and sparse random sections.
+
+Baseline (µs/op per 32³ section, 2 forks × 5 iterations):
+
+| data | current (= original) | reference |
+|---|---|---|
+| terrain | 920.0 ± 47.0 | 889.6 ± 36.3 |
+| noise (dense random) | 8545.7 ± 637.5 | 8283.1 ± 410.6 |
+| sparse (90% air random) | 1788.6 ± 79.2 | 1797.1 ± 65.4 |
+
 ## GPU-side candidates (not measured — profile on a real GPU)
 - Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
   every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).
