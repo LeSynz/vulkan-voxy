@@ -154,6 +154,27 @@ Baseline (µs/op per 32³ section, 2 forks × 5 iterations):
 | noise (dense random) | 8545.7 ± 637.5 | 8283.1 ± 410.6 |
 | sparse (90% air random) | 1788.6 ± 79.2 | 1797.1 ± 65.4 |
 
+Profile (JMH `stack` profiler, terrain, share of mesher samples): `ScanMesher2D`
+(`putNext`/`putNext0`/`emitRanged`/`skip`, the greedy quad merger) ≈ 51%, `prepareSectionData`
+(per-voxel model lookup) ≈ 25%, `acquireNeighborData` ≈ 6%, face generation loops the rest.
+Run with `./gradlew jmh -PjmhIncludes=MeshingJMH -PjmhProfilers=stack`.
+
+### 10. Meshing — reuse the previous voxel's lookup in `prepareSectionData` — REVERTED
+The in-code TODO ("cache the results of this, then link it to `block`"): if a voxel's raw value
+equals the previous voxel's, reuse its packed quad data, metadata and mask bits instead of the
+`idMappings`/`metadataCache` lookups and packing. Identity test passed, but it was not measurably
+faster: terrain 845.3 ± 45.8 vs. reference 880.0 ± 46.0 µs/op (−4%, error bars overlap), noise
+8433 ± 337 vs. 8251 ± 411, sparse 1941 ± 103 vs. 1751 ± 70 (+11% slower; the extra compare
+mispredicts on random data). Reverted. The meshing benchmark/test stay; the identity test now also
+covers the "model not baked yet" path (`IdNotYetComputedException` id and neighbour mask must match).
+
+Larger meshing ideas, not attempted because they cannot be shown faster without changing the hot
+loop structure of the hand-tuned merger, or would only pay off in-game (for profiling on a real install):
+- Cache per-section directional face masks across rebuilds (the in-code TODO at the top of
+  `RenderDataFactory`); rebuilds after single-block updates would skip unchanged axes.
+- `acquireNeighborData` copies 6×1024 longs through the section tracker per mesh; reading the
+  neighbour arrays on demand would avoid the copies (needs care with the tracker's reuse).
+
 ## GPU-side candidates (not measured — profile on a real GPU)
 - Barriers: Phase 1 uses conservative `VkBarriers` (e.g. `allToTransfer`/`transferToAll` around
   every buffer fill/update, ALL_COMMANDS full barriers at the start/end of Voxy's command buffer).

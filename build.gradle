@@ -429,6 +429,10 @@ jmh {
     //Benchmarks reuse the deterministic test data generators and reference (pre-optimisation) implementations
     includeTests = true
     //profilers = ["xperfasm"]
+    //-PjmhProfilers=<a,b> attaches JMH profilers (e.g. "stack", "gc", "jfr")
+    if (project.findProperty("jmhProfilers")) {
+        profilers = project.findProperty("jmhProfilers").toString().split(",").toList()
+    }
 }
 
 /*
