@@ -221,9 +221,7 @@ public final class VoxyBenchmark {
             sectionSeries.add(new double[]{t, count});
             if (count > 0 && timeToFirstSection < 0) timeToFirstSection = t;
         }
-        if (sinceJoin >= 1.0 || sinceJoin < 20) {
-            if (interval == 1_000_000_000L || (int) (t * 10) % 10 == 0) samples.add(String.format("%.1f %s", t, joined));
-        }
+        samples.add(String.format("%.2f %s", t, joined));
         //Loading complete: mesh queue empty and nothing changed for 3 samples
         String queue = lines.stream().filter(l -> l.startsWith("RSSQ")).findFirst().orElse("");
         String key = queue + lines.stream().filter(l -> l.startsWith("UC/GC")).findFirst().orElse("");

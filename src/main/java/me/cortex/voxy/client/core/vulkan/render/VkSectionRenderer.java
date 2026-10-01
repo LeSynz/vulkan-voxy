@@ -139,9 +139,10 @@ public class VkSectionRenderer {
         this.terrainShader = terrainShader(properties, tints, false).compileGraphics(terrainState);
         this.translucentTerrainShader = terrainShader(properties, tints, true).compileGraphics(terrainState.copy()
                 .blend(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA));
+        //The occlusion test only needs the depth/stencil attachment, the fragments just write the visibility buffer
         this.cullShader = cullShader(properties).compileGraphics(terrainState.copy()
                 .depthWrite(false)
-                .colorWriteMask(0));
+                .colorFormats());
 
         this.commandGenShader = commandGenShader(RenderStatistics.enabled).compileCompute();
         this.prepShader = prepShader().compileCompute();
@@ -239,7 +240,7 @@ public class VkSectionRenderer {
                     .ssbo(1, this.geometryManager.getMetadataBuffer())
                     .ssbo(2, viewport.visibilityBuffer)
                     .ssbo(3, viewport.indirectLookupBuffer);
-            this.targets.beginOpaque(cmd, viewport);
+            this.targets.beginDepthOnly(cmd, viewport);
             this.cullShader.bind(cmd);
             vkCmdBindIndexBuffer(cmd, this.indices.cube.buffer, 0, VK_INDEX_TYPE_UINT16);
             vkCmdDrawIndexedIndirect(cmd, viewport.drawCountCallBuffer.buffer, 6*4, 1, DRAW_COMMAND_STRIDE);

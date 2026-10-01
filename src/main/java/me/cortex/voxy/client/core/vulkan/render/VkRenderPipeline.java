@@ -111,6 +111,12 @@ public class VkRenderPipeline implements IVkTerrainTargets {
     }
 
     @Override
+    public void beginDepthOnly(VkCommandBuffer cmd, VkViewport viewport) {
+        var depth = this.fb.getImage();
+        VkRendering.begin(cmd, viewport.width, viewport.height, new long[0], depth.attachmentView(0), depth.hasStencil);
+    }
+
+    @Override
     public void beginTranslucent(VkCommandBuffer cmd, VkViewport viewport) {
         var depth = this.fb.getImage();
         VkRendering.begin(cmd, viewport.width, viewport.height, new long[]{this.colourSSAOTex.attachmentView(0)}, depth.attachmentView(0), depth.hasStencil);
