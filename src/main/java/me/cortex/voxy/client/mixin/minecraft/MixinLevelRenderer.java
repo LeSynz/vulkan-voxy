@@ -3,6 +3,7 @@ package me.cortex.voxy.client.mixin.minecraft;
 import me.cortex.voxy.client.VoxyClientInstance;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
+import me.cortex.voxy.client.core.backend.GpuBackend;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
 import me.cortex.voxy.client.core.util.IrisUtil;
 import me.cortex.voxy.common.Logger;
@@ -77,6 +78,11 @@ public abstract class MixinLevelRenderer implements IVoxyRenderSystemHolder {
         if (instance == null) {
             //This is now legal (e.g. when the instance is disabled)
             Logger.info("Not creating renderer due to null instance");
+            return;
+        }
+        if (GpuBackend.isVulkan()) {
+            //TODO: vulkan render system is being ported, see PORTING_PROGRESS.md
+            Logger.warn("Not creating renderer, the vulkan render system is not available yet");
             return;
         }
         WorldEngine world = this.identifier.getOrCreateEngine(true);

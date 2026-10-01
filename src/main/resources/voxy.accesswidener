@@ -20,3 +20,6 @@ accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage getC
 accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage getIndex (II)I
 
 accessible field net/minecraft/world/level/block/StairBlock baseState Lnet/minecraft/world/level/block/state/BlockState;
+
+accessible field com/mojang/renderpearl/frontend/FrontendGpuDevice backend Lcom/mojang/renderpearl/backend/api/GpuDeviceBackend;
+accessible field com/mojang/renderpearl/backend/vulkan/VulkanDevice enabledFeatures Lcom/mojang/renderpearl/backend/vulkan/init/FeatureSet;
