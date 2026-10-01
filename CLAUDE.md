@@ -44,4 +44,6 @@
 - Do not stop to ask questions. The human is asleep. If blocked, record it in
   PORTING_PROGRESS.md and move on to the next item.
 - Keep going until both phases are complete or everything remaining is blocked.
+- If the build is blocked by a dependency conflict, apply the smallest fix that matches what
+  Minecraft ships at runtime, record it in PORTING_PROGRESS.md, and carry on. Don't stop to ask.
 - Small, revertible commits with clear messages.
