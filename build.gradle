@@ -424,7 +424,10 @@ dependencies {
 
 jmh {
     zip64 = true
-    includes=["SaveLoadJMH"]
+    //-PjmhIncludes=<regex> selects benchmarks (default: SaveLoadJMH, as before)
+    includes=[(project.findProperty("jmhIncludes") ?: "SaveLoadJMH").toString()]
+    //Benchmarks reuse the deterministic test data generators and reference (pre-optimisation) implementations
+    includeTests = true
     //profilers = ["xperfasm"]
 }
 

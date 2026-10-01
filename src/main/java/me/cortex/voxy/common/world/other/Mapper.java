@@ -263,7 +263,30 @@ public class Mapper {
         return this.getBlockStateOpacity(getBlockId(mappingId));
     }
 
+    //Flat copy of the (append only, immutable once added) state entry opacities, avoids the list + entry
+    // dereference in hot paths (mipping). Rebuilt when an id beyond it is requested.
+    private volatile int[] opacityCache = new int[0];
+
     public int getBlockStateOpacity(int blockId) {
+        int[] cache = this.opacityCache;
+        if (blockId >= 0 && blockId < cache.length) {
+            return cache[blockId];
+        }
+        return this.refreshOpacityCache(blockId);
+    }
+
+    private int refreshOpacityCache(int blockId) {
+        this.blockLock.lock();
+        try {
+            int size = this.blockId2stateEntry.size();
+            int[] cache = new int[size];
+            for (int i = 0; i < size; i++) {
+                cache[i] = this.blockId2stateEntry.get(i).opacity;
+            }
+            this.opacityCache = cache;
+        } finally {
+            this.blockLock.unlock();
+        }
         return this.blockId2stateEntry.get(blockId).opacity;
     }
 
