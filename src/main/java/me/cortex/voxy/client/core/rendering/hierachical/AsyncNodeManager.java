@@ -16,6 +16,7 @@ import me.cortex.voxy.client.core.rendering.section.geometry.BasicAsyncGeometryM
 import me.cortex.voxy.client.core.rendering.section.geometry.BasicSectionGeometryData;
 import me.cortex.voxy.client.core.rendering.section.geometry.IGeometryData;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
+import me.cortex.voxy.client.core.rendering.util.GlUploadStream;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.AllocationArena;
 import me.cortex.voxy.common.util.MemoryBuffer;
@@ -554,8 +555,8 @@ public class AsyncNodeManager {
                 UploadStream.INSTANCE.commit();//Commit the buffer
 
                 this.multiMemcpy.bind();
-                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, UploadStream.INSTANCE.getRawBufferId(), ptr, upCopies);
-                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, UploadStream.INSTANCE.getRawBufferId(), ptr+upCopies, upScratchSize);
+                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, GlUploadStream.gl().getRawBufferId(), ptr, upCopies);
+                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, GlUploadStream.gl().getRawBufferId(), ptr+upCopies, upScratchSize);
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ((BasicSectionGeometryData) this.geometryData).getGeometryBuffer().id);
 
                 if (copies > 500) {
@@ -580,7 +581,7 @@ public class AsyncNodeManager {
             UploadStream.INSTANCE.commit();//Commit the buffer
 
             this.scatterWrite.bind();
-            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, UploadStream.INSTANCE.getRawBufferId(), ptr, UploadStream.alignUpAlloc(streamSize));
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, GlUploadStream.gl().getRawBufferId(), ptr, UploadStream.alignUpAlloc(streamSize));
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, nodeBuffer.id);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ((BasicSectionGeometryData) this.geometryData).getMetadataBuffer().id);
             glUniform1ui(0, count);

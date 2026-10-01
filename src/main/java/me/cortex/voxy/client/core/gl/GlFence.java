@@ -1,11 +1,12 @@
 package me.cortex.voxy.client.core.gl;
 
+import me.cortex.voxy.client.core.backend.IGpuFence;
 import me.cortex.voxy.common.util.TrackedObject;
 import org.lwjgl.system.MemoryUtil;
 
 import static org.lwjgl.opengl.GL32.*;
 
-public class GlFence extends TrackedObject {
+public class GlFence extends TrackedObject implements IGpuFence {
     private final long fence;
     private boolean signaled;
 

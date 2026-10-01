@@ -1,5 +1,6 @@
 package me.cortex.voxy.client.core.gl;
 
+import me.cortex.voxy.client.core.backend.IGpuBuffer;
 import me.cortex.voxy.common.util.MemoryBuffer;
 import me.cortex.voxy.common.util.TrackedObject;
 import org.lwjgl.opengl.GL11;
@@ -10,7 +11,7 @@ import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL15.glDeleteBuffers;
 import static org.lwjgl.opengl.GL45C.*;
 
-public class GlBuffer extends TrackedObject {
+public class GlBuffer extends TrackedObject implements IGpuBuffer {
     public final int id;
     private final long size;
     private final int flags;

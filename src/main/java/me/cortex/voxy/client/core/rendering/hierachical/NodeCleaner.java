@@ -8,6 +8,7 @@ import me.cortex.voxy.client.core.gl.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
 import me.cortex.voxy.client.core.rendering.util.PrintfDebugUtil;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
+import me.cortex.voxy.client.core.rendering.util.GlUploadStream;
 import org.lwjgl.opengl.ARBDirectStateAccess;
 import org.lwjgl.system.MemoryUtil;
 
@@ -156,7 +157,7 @@ public class NodeCleaner {
             UploadStream.INSTANCE.commit();
 
             this.batchClear.bind();
-            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, UploadStream.INSTANCE.getRawBufferId(), addr, UploadStream.alignUpAlloc(count*4));
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, GlUploadStream.gl().getRawBufferId(), addr, UploadStream.alignUpAlloc(count*4));
             glUniform1ui(0, count);
             glUniform1ui(1, this.visibilityId);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);

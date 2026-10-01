@@ -29,6 +29,7 @@
     "minecraft.util.MixinClientCommonPacketListenerImpl",
     "minecraft.util.MixinGlDebug",
     "minecraft.util.MixinGPUSelect",
+    "minecraft.vulkan.MixinVulkanCommandEncoder",
     "minecraft.vulkan.MixinVulkanFeatureSets",
     "nvidium.MixinRenderPipeline",
     "sodium.AccessorChunkTracker",
